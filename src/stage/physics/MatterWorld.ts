@@ -5,6 +5,10 @@ import Matter from 'matter-js'
  *
  * Zero gravity. Bodies float. Matter computes positions, Pixi renders them.
  * Max 200 active bodies. Sleeping enabled.
+ *
+ * Every renderer owns bodies in this shared world. The physics engine
+ * produces the visual patterns: queueing, bunching, bottleneck pileups,
+ * corridor drag, cadence gaps, sink competition.
  */
 
 export interface MatterWorldAPI {
@@ -19,7 +23,10 @@ export interface MatterWorldAPI {
   createCongestionParticle: (x: number, y: number) => Matter.Body
   createCompressionWall: (x: number, y: number, w: number, h: number) => Matter.Body
   createBreathingParticle: (x: number, y: number) => Matter.Body
+  createFlowBody: (x: number, y: number, radius: number, label: string) => Matter.Body
+  createWallSegment: (x: number, y: number, w: number, h: number, angle?: number) => Matter.Body
   applyAttractor: (bodies: Matter.Body[], target: { x: number; y: number }, strength: number) => void
+  applyDirectionalForce: (body: Matter.Body, direction: { x: number; y: number }, strength: number) => void
   getBodies: () => Matter.Body[]
   dispose: () => void
 }
@@ -110,6 +117,32 @@ export function createMatterWorld(width: number, height: number): MatterWorldAPI
     })
   }
 
+  /**
+   * Generic flow body for any renderer. Collides with walls and other flow bodies.
+   */
+  function createFlowBody(x: number, y: number, radius: number, label: string) {
+    return Matter.Bodies.circle(x, y, radius, {
+      density: 0.0008,
+      frictionAir: 0.025,
+      restitution: 0.2,
+      friction: 0.05,
+      label,
+      collisionFilter: { category: 0x0004, mask: 0x0004 | 0x0008 },
+    })
+  }
+
+  /**
+   * Static wall segment for corridors, guide rails, bottlenecks.
+   */
+  function createWallSegment(x: number, y: number, w: number, h: number, angle = 0) {
+    return Matter.Bodies.rectangle(x, y, w, h, {
+      isStatic: true,
+      angle,
+      label: 'wall_segment',
+      collisionFilter: { category: 0x0008, mask: 0x0004 },
+    })
+  }
+
   function applyAttractor(bodies: Matter.Body[], target: { x: number; y: number }, strength: number) {
     for (const body of bodies) {
       const dx = target.x - body.position.x
@@ -122,6 +155,16 @@ export function createMatterWorld(width: number, height: number): MatterWorldAPI
           y: (dy / dist) * force,
         })
       }
+    }
+  }
+
+  function applyDirectionalForce(body: Matter.Body, direction: { x: number; y: number }, strength: number) {
+    const len = Math.sqrt(direction.x * direction.x + direction.y * direction.y)
+    if (len > 0) {
+      Matter.Body.applyForce(body, body.position, {
+        x: (direction.x / len) * strength,
+        y: (direction.y / len) * strength,
+      })
     }
   }
 
@@ -145,7 +188,10 @@ export function createMatterWorld(width: number, height: number): MatterWorldAPI
     createCongestionParticle,
     createCompressionWall,
     createBreathingParticle,
+    createFlowBody,
+    createWallSegment,
     applyAttractor,
+    applyDirectionalForce,
     getBodies,
     dispose,
   }

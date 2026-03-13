@@ -1,213 +1,153 @@
 import * as PIXI from 'pixi.js'
+import Matter from 'matter-js'
 import { COLORS } from '../../app/config/constants'
 
 /**
- * FlowBandRenderer — Shipping lens.
+ * FlowBandRenderer — Shipping lens. PHYSICS-FIRST.
  *
  * Human question: Where did the ships go?
  *
- * Shows: chokepoint blockage, bunching upstream, reroute around Africa,
- * maritime current, slower longer path. Thick glowing path bands carry
- * small circle particles with afterimage trails. Width modulates with
- * pressure; queue bloom grows near the chokepoint. Reroute bands fade
- * in as pressure rises.
+ * What you SEE:
+ * - Bodies piling up behind the chokepoint wall (queueing)
+ * - Dense cluster upstream, sparse downstream (bunching)
+ * - Bodies peeling off to reroute path when constricted
+ * - Trail afterimages showing flow direction
+ * - Density bloom where bodies cluster
+ *
+ * Matter.js DRIVES the visuals. Bodies collide at the chokepoint,
+ * bunch behind walls, spill through or reroute around Africa.
+ * Pixi just renders what Matter produces.
  */
 
-interface ParticleData {
-  progress: number
-  speed: number
+interface VesselBody {
+  body: Matter.Body
   trail: { x: number; y: number }[]
-}
-
-export interface FlowBand {
-  container: PIXI.Container
-  pathGraphics: PIXI.Graphics
-  particleGraphics: PIXI.Graphics
-  particles: ParticleData[]
-  path: { x: number; y: number }[]
-  progresses: number[]
-  speeds: number[]
-  active: boolean
+  waypointIdx: number
   isReroute: boolean
-  baseColor: number
-  baseWidth: number
 }
-
-// ── Drawing helpers ──────────────────────────────────────────────────
-
-/**
- * Glowing path: draw same path 3 times at increasing width and decreasing alpha.
- */
-function drawGlowingPath(
-  g: PIXI.Graphics,
-  points: { x: number; y: number }[],
-  baseWidth: number,
-  color: number,
-  alpha: number,
-) {
-  if (points.length < 2) return
-  for (let pass = 2; pass >= 0; pass--) {
-    const w = baseWidth * (1 + pass * 1.2)
-    const a = alpha * (pass === 0 ? 1 : pass === 1 ? 0.15 : 0.04)
-    g.lineStyle(w, color, a)
-    g.moveTo(points[0].x, points[0].y)
-    for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y)
-  }
-}
-
-/**
- * Queue bloom: soft radial gradient via concentric circles.
- */
-function drawQueueBloom(
-  g: PIXI.Graphics,
-  x: number,
-  y: number,
-  pressure: number,
-) {
-  const layers = 5
-  for (let i = layers; i >= 0; i--) {
-    const r = (8 + i * 6) * pressure
-    const a = 0.02 + (layers - i) * 0.015 * pressure
-    g.beginFill(0xFF5555, a)
-    g.drawCircle(x, y, r)
-    g.endFill()
-  }
-}
-
-// ── Renderer ─────────────────────────────────────────────────────────
 
 export class FlowBandRenderer {
   private container: PIXI.Container
-  private bands: FlowBand[] = []
+  private gfx: PIXI.Graphics
+  private densityGfx: PIXI.Graphics
+  private pathGfx: PIXI.Graphics
+
+  private engine: Matter.Engine
+  private vessels: VesselBody[] = []
+  private chokepointWalls: Matter.Body[] = []
+  private gapWidth = 30
+
+  // Paths
+  private mainPath: { x: number; y: number }[] = []
+  private reroutePath: { x: number; y: number }[] = []
+  private otherPaths: { x: number; y: number; color: number; width: number }[][] = []
+
+  private chokepointPos: { x: number; y: number } | null = null
+  private portPos: { x: number; y: number } | null = null
+
   private pressure = 0.5
   private perspective: 'nurse' | 'driver' | null = null
   private constricted = false
 
-  // Anchor nodes
-  private chokepointGlow: PIXI.Graphics
-  private portNode: PIXI.Graphics
-  private queueBloom: PIXI.Graphics
+  // Constants
+  private readonly VESSEL_COUNT = 80
+  private readonly TRAIL_LEN = 6
+  private readonly FLOW_STRENGTH = 0.000035
+  private readonly REROUTE_FRACTION = 0.35
 
-  // Stored positions for dynamic redraws
-  private chokepointPos: { x: number; y: number } | null = null
-  private portPos: { x: number; y: number } | null = null
-
-  constructor(parent: PIXI.Container) {
+  constructor(parent: PIXI.Container, engine: Matter.Engine) {
     this.container = new PIXI.Container()
     parent.addChild(this.container)
+    this.engine = engine
 
-    // Chokepoint — soft pulsing glow (no ring, no cross)
-    this.chokepointGlow = new PIXI.Graphics()
-    this.container.addChild(this.chokepointGlow)
+    // Background path lines (dim guides)
+    this.pathGfx = new PIXI.Graphics()
+    this.container.addChild(this.pathGfx)
 
-    // Port node — warm subtle dot
-    this.portNode = new PIXI.Graphics()
-    this.container.addChild(this.portNode)
+    // Density bloom layer (behind bodies)
+    this.densityGfx = new PIXI.Graphics()
+    this.container.addChild(this.densityGfx)
 
-    // Queue density bloom
-    this.queueBloom = new PIXI.Graphics()
-    this.container.addChild(this.queueBloom)
+    // Body + trail layer
+    this.gfx = new PIXI.Graphics()
+    this.container.addChild(this.gfx)
   }
 
-  // ── Anchors ──────────────────────────────────────────────────────
-
-  setAnchors(
-    chokepoint: { x: number; y: number },
-    port: { x: number; y: number },
-  ) {
+  /**
+   * Setup: main shipping lane, reroute around Cape, and optional extra paths.
+   * Creates chokepoint walls and spawns vessel bodies.
+   */
+  setAnchors(chokepoint: { x: number; y: number }, port: { x: number; y: number }) {
     this.chokepointPos = chokepoint
     this.portPos = port
-    this.drawChokepointGlow(chokepoint)
-    this.drawPortNode(port)
   }
-
-  /** Soft pulsing glow — no ring, no X */
-  private drawChokepointGlow(pos: { x: number; y: number }) {
-    this.chokepointGlow.clear()
-    // Layered radial glow
-    const layers = 4
-    for (let i = layers; i >= 0; i--) {
-      const r = 6 + i * 5
-      const a = 0.25 - i * 0.05
-      this.chokepointGlow.beginFill(0xFF5555, Math.max(0.02, a))
-      this.chokepointGlow.drawCircle(pos.x, pos.y, r)
-      this.chokepointGlow.endFill()
-    }
-  }
-
-  /** Port node — warm subtle dot */
-  private drawPortNode(pos: { x: number; y: number }) {
-    this.portNode.clear()
-    // Outer soft halo
-    this.portNode.beginFill(0xC8A96E, 0.1)
-    this.portNode.drawCircle(pos.x, pos.y, 8)
-    this.portNode.endFill()
-    // Inner warm dot
-    this.portNode.beginFill(0xC8A96E, 0.45)
-    this.portNode.drawCircle(pos.x, pos.y, 4)
-    this.portNode.endFill()
-  }
-
-  // ── Band management ──────────────────────────────────────────────
 
   addBand(
     path: { x: number; y: number }[],
-    particleCount: number,
-    color: string = COLORS.shipping,
-    width: number = 3,
-    isReroute = false,
-  ): FlowBand {
-    const bandContainer = new PIXI.Container()
-    this.container.addChild(bandContainer)
+    _particleCount: number,
+    color: string,
+    width: number,
+    isReroute: boolean,
+  ) {
     const hexColor = PIXI.utils.string2hex(color)
+    if (isReroute) {
+      this.reroutePath = path
+    } else if (this.mainPath.length === 0) {
+      this.mainPath = path
+    } else {
+      this.otherPaths.push(path.map(p => ({ ...p, color: hexColor, width })))
+    }
+  }
 
-    // Path graphics — thick glowing band (redrawn each frame for width modulation)
-    const pathGraphics = new PIXI.Graphics()
-    bandContainer.addChild(pathGraphics)
-    drawGlowingPath(pathGraphics, path, width, hexColor, 0.7)
+  /** Call after all addBand + setAnchors. Creates Matter bodies. */
+  initPhysics() {
+    if (!this.chokepointPos || this.mainPath.length < 2) return
 
-    // Single shared Graphics for ALL particles in this band
-    const particleGraphics = new PIXI.Graphics()
-    bandContainer.addChild(particleGraphics)
+    const cp = this.chokepointPos
 
-    // Particle data
-    const particles: ParticleData[] = []
-    const progresses: number[] = []
-    const speeds: number[] = []
+    // Chokepoint: two static walls with a gap between them
+    const wallLen = 60
+    const wallThick = 6
+    const halfGap = this.gapWidth / 2
 
-    for (let i = 0; i < particleCount; i++) {
-      const progress = Math.random()
-      const speed = 0.001 + Math.random() * 0.002
-      progresses.push(progress)
-      speeds.push(speed)
-      particles.push({
-        progress,
-        speed,
+    const wallTop = Matter.Bodies.rectangle(
+      cp.x, cp.y - halfGap - wallLen / 2,
+      wallThick, wallLen,
+      { isStatic: true, label: 'choke_wall', collisionFilter: { category: 0x0008, mask: 0x0004 } },
+    )
+    const wallBot = Matter.Bodies.rectangle(
+      cp.x, cp.y + halfGap + wallLen / 2,
+      wallThick, wallLen,
+      { isStatic: true, label: 'choke_wall', collisionFilter: { category: 0x0008, mask: 0x0004 } },
+    )
+    Matter.Composite.add(this.engine.world, [wallTop, wallBot])
+    this.chokepointWalls = [wallTop, wallBot]
+
+    // Spawn vessel bodies upstream of chokepoint
+    for (let i = 0; i < this.VESSEL_COUNT; i++) {
+      const startPt = this.mainPath[0]
+      const radius = 1.8 + Math.random() * 1.5
+      const body = Matter.Bodies.circle(
+        startPt.x + (Math.random() - 0.5) * 120,
+        startPt.y + (Math.random() - 0.5) * 80,
+        radius,
+        {
+          density: 0.0006,
+          frictionAir: 0.03 + Math.random() * 0.02,
+          restitution: 0.25,
+          friction: 0.08,
+          label: 'vessel',
+          collisionFilter: { category: 0x0004, mask: 0x0004 | 0x0008 },
+        },
+      )
+      Matter.Composite.add(this.engine.world, body)
+      this.vessels.push({
+        body,
         trail: [],
+        waypointIdx: 0,
+        isReroute: false,
       })
     }
-
-    const band: FlowBand = {
-      container: bandContainer,
-      pathGraphics,
-      particleGraphics,
-      particles,
-      path,
-      progresses,
-      speeds,
-      active: true,
-      isReroute,
-      baseColor: hexColor,
-      baseWidth: width,
-    }
-
-    // Reroute bands start nearly invisible
-    if (isReroute) {
-      bandContainer.alpha = 0.15
-    }
-
-    this.bands.push(band)
-    return band
   }
 
   setPressure(p: number) {
@@ -219,150 +159,244 @@ export class FlowBandRenderer {
   }
 
   setConstricted(constricted: boolean) {
+    if (this.constricted === constricted) return
     this.constricted = constricted
-  }
 
-  // ── Frame update ─────────────────────────────────────────────────
+    // Narrow or widen the chokepoint gap
+    if (this.chokepointPos && this.chokepointWalls.length === 2) {
+      const cp = this.chokepointPos
+      const wallLen = 60
+      const newGap = constricted ? Math.max(3, 30 - this.pressure * 20) : 30
+      this.gapWidth = newGap
+      const halfGap = newGap / 2
+
+      Matter.Body.setPosition(this.chokepointWalls[0], { x: cp.x, y: cp.y - halfGap - wallLen / 2 })
+      Matter.Body.setPosition(this.chokepointWalls[1], { x: cp.x, y: cp.y + halfGap + wallLen / 2 })
+    }
+  }
 
   update(delta: number) {
-    const time = Date.now() * 0.001
-    const speedMod = this.constricted ? 0.08 : (1.0 - this.pressure * 0.4)
+    const dt = delta
+    const shippingHex = PIXI.utils.string2hex(COLORS.shipping)
+    const rerouteHex = PIXI.utils.string2hex(COLORS.importStress)
 
-    // Width modulation: bands get thinner under high pressure
-    const widthScale = this.constricted
-      ? Math.max(0.3, 1.0 - this.pressure * 0.5)
-      : 1.0
+    // ── Update chokepoint gap dynamically with pressure ──
+    if (this.constricted && this.chokepointPos && this.chokepointWalls.length === 2) {
+      const cp = this.chokepointPos
+      const wallLen = 60
+      const targetGap = Math.max(3, 30 - this.pressure * 22)
+      this.gapWidth += (targetGap - this.gapWidth) * 0.05
+      const halfGap = this.gapWidth / 2
+      Matter.Body.setPosition(this.chokepointWalls[0], { x: cp.x, y: cp.y - halfGap - wallLen / 2 })
+      Matter.Body.setPosition(this.chokepointWalls[1], { x: cp.x, y: cp.y + halfGap + wallLen / 2 })
+    }
 
-    for (const band of this.bands) {
-      if (!band.active) continue
+    // ── Apply forces to each vessel body ──
+    const reroute = this.reroutePath
+    const main = this.mainPath
+    const hasReroute = this.constricted && reroute.length >= 2
 
-      const path = band.path
-      const totalLen = path.length - 1
+    for (const v of this.vessels) {
+      const bx = v.body.position.x
+      const by = v.body.position.y
+      const path = v.isReroute ? reroute : main
+      if (path.length < 2) continue
 
-      // ── Progressive reroute activation ───────────────────────
-      if (band.isReroute) {
-        const targetAlpha = this.constricted
-          ? Math.min(0.9, 0.2 + this.pressure * 0.7)
-          : 0.15
-        band.container.alpha += (targetAlpha - band.container.alpha) * 0.02
+      // Determine if this vessel should reroute
+      if (hasReroute && !v.isReroute && this.chokepointPos) {
+        const distToChoke = Math.sqrt((bx - this.chokepointPos.x) ** 2 + (by - this.chokepointPos.y) ** 2)
+        // Bodies close to chokepoint with high pressure may peel off
+        if (distToChoke < 60 && Math.random() < this.REROUTE_FRACTION * this.pressure * dt * 0.5) {
+          v.isReroute = true
+          v.waypointIdx = 0
+        }
       }
 
-      // ── Redraw path band with current width modulation ──────
-      band.pathGraphics.clear()
-      const currentWidth = band.baseWidth * widthScale
-      drawGlowingPath(band.pathGraphics, path, currentWidth, band.baseColor, 0.7)
+      // Find current waypoint target
+      const wp = path[Math.min(v.waypointIdx, path.length - 1)]
+      const dx = wp.x - bx
+      const dy = wp.y - by
+      const dist = Math.sqrt(dx * dx + dy * dy)
 
-      // ── Move particles ──────────────────────────────────────
-      const bandSpeed = band.isReroute ? speedMod * 0.6 : speedMod
+      // Advance waypoint when close enough
+      if (dist < 20 && v.waypointIdx < path.length - 1) {
+        v.waypointIdx++
+      }
 
-      // Clear particle graphics for redraw
-      band.particleGraphics.clear()
+      // Recycle at end of path
+      if (v.waypointIdx >= path.length - 1 && dist < 25) {
+        const start = main[0]
+        Matter.Body.setPosition(v.body, {
+          x: start.x + (Math.random() - 0.5) * 80,
+          y: start.y + (Math.random() - 0.5) * 60,
+        })
+        Matter.Body.setVelocity(v.body, { x: 0, y: 0 })
+        v.waypointIdx = 0
+        v.isReroute = false
+        v.trail = []
+        continue
+      }
 
-      for (let i = 0; i < band.particles.length; i++) {
-        const pd = band.particles[i]
+      // Apply waypoint attraction force
+      if (dist > 3) {
+        const strength = this.FLOW_STRENGTH * (v.isReroute ? 0.7 : 1.0)
+        Matter.Body.applyForce(v.body, v.body.position, {
+          x: (dx / dist) * strength,
+          y: (dy / dist) * strength,
+        })
+      }
 
-        // Advance progress
-        pd.progress += pd.speed * bandSpeed * delta * 60
+      // Trail
+      v.trail.push({ x: bx, y: by })
+      if (v.trail.length > this.TRAIL_LEN) v.trail.shift()
+    }
 
-        // Queue effect: particles bunch near start of path under constriction
-        if (!band.isReroute && this.constricted && pd.progress < 0.3) {
-          pd.progress -= pd.speed * bandSpeed * delta * 60 * 0.7
-        }
+    // ── RENDER ──
+    this.gfx.clear()
+    this.densityGfx.clear()
+    this.pathGfx.clear()
 
-        // Wrap
-        if (pd.progress > 1) pd.progress -= 1
-        if (pd.progress < 0) pd.progress += 1
-
-        // Keep legacy arrays in sync
-        band.progresses[i] = pd.progress
-        band.speeds[i] = pd.speed
-
-        // Interpolate position on path
-        const t = pd.progress
-        const seg = Math.min(Math.floor(t * totalLen), totalLen - 1)
-        const localT = (t * totalLen) - seg
-
-        const x = path[seg].x + (path[seg + 1].x - path[seg].x) * localT
-        const y = path[seg].y + (path[seg + 1].y - path[seg].y) * localT
-
-        // ── Trail management ────────────────────────────────
-        pd.trail.push({ x, y })
-        if (pd.trail.length > 4) pd.trail.shift()
-
-        // Particle alpha: bunching opacity near chokepoint
-        let particleAlpha: number
-        if (this.constricted && !band.isReroute) {
-          const proximity = 1 - Math.min(1, pd.progress / 0.3)
-          particleAlpha = 0.3 + proximity * 0.6
-        } else {
-          particleAlpha = 0.75
-        }
-
-        // ── Draw trail segments (decreasing alpha) ──────────
-        const trailLen = pd.trail.length
-        if (trailLen >= 2) {
-          for (let ti = 0; ti < trailLen - 1; ti++) {
-            const trailAlpha = particleAlpha * ((ti + 1) / trailLen) * 0.4
-            const trailWidth = 1.0 + ((ti + 1) / trailLen) * 1.0
-            band.particleGraphics.lineStyle(trailWidth, band.baseColor, trailAlpha)
-            band.particleGraphics.moveTo(pd.trail[ti].x, pd.trail[ti].y)
-            band.particleGraphics.lineTo(pd.trail[ti + 1].x, pd.trail[ti + 1].y)
-          }
-        }
-
-        // ── Draw particle as a small circle ─────────────────
-        const radius = 1.5 + Math.random() * 1.0 // 1.5–2.5
-        band.particleGraphics.lineStyle(0)
-        band.particleGraphics.beginFill(band.baseColor, particleAlpha)
-        band.particleGraphics.drawCircle(x, y, radius)
-        band.particleGraphics.endFill()
+    // Draw background path lines (dim guides showing the routes)
+    this.drawPathGuide(this.pathGfx, main, shippingHex, 0.08, 2)
+    if (reroute.length >= 2) {
+      const rerouteAlpha = this.constricted ? Math.min(0.12, this.pressure * 0.1) : 0.02
+      this.drawPathGuide(this.pathGfx, reroute, rerouteHex, rerouteAlpha, 1.5)
+    }
+    for (const op of this.otherPaths) {
+      if (op.length >= 2) {
+        this.drawPathGuide(this.pathGfx, op, op[0].color, 0.06, op[0].width * 0.5)
       }
     }
 
-    // ── Queue bloom near chokepoint ────────────────────────────────
-    this.queueBloom.clear()
-    if (this.constricted && this.pressure > 0.3) {
-      const chokePos = this.chokepointPos ?? this.bands[0]?.path[0]
-      if (chokePos) {
-        drawQueueBloom(this.queueBloom, chokePos.x, chokePos.y, this.pressure)
-      }
+    // ── Density bloom: compute local density and draw glow ──
+    if (this.chokepointPos && this.constricted) {
+      this.drawDensityBloom(this.densityGfx, shippingHex)
     }
 
-    // ── Animate chokepoint pulsing glow ────────────────────────────
-    if (this.chokepointPos) {
-      this.chokepointGlow.clear()
-      const basePulse = this.constricted
-        ? 0.4 + Math.sin(time * 2.5) * 0.25
-        : 0.2
-      const layers = 4
+    // ── Draw vessel bodies: position from Matter, visual from Pixi ──
+    for (const v of this.vessels) {
+      const bx = v.body.position.x
+      const by = v.body.position.y
+      const rad = (v.body as any).circleRadius || 2.5
+      const speed = Math.sqrt(v.body.velocity.x ** 2 + v.body.velocity.y ** 2)
+      const color = v.isReroute ? rerouteHex : shippingHex
+
+      // Trail afterimage
+      if (v.trail.length >= 2) {
+        for (let i = 0; i < v.trail.length - 1; i++) {
+          const t = (i + 1) / v.trail.length
+          const trailAlpha = t * 0.25
+          this.gfx.lineStyle(rad * t, color, trailAlpha)
+          this.gfx.moveTo(v.trail[i].x, v.trail[i].y)
+          this.gfx.lineTo(v.trail[i + 1].x, v.trail[i + 1].y)
+        }
+      }
+
+      // Velocity-based bloom: fast-moving bodies glow less, bunched bodies glow more
+      const bunchGlow = Math.max(0, 0.15 - speed * 0.03)
+      if (bunchGlow > 0.02) {
+        this.gfx.lineStyle(0)
+        this.gfx.beginFill(color, bunchGlow)
+        this.gfx.drawCircle(bx, by, rad * 3)
+        this.gfx.endFill()
+      }
+
+      // Core body
+      const bodyAlpha = 0.5 + Math.min(0.45, (1 / (speed + 0.5)) * 0.3)
+      this.gfx.lineStyle(0)
+      this.gfx.beginFill(color, bodyAlpha)
+      this.gfx.drawCircle(bx, by, rad)
+      this.gfx.endFill()
+    }
+
+    // ── Chokepoint stress glow ──
+    if (this.chokepointPos && this.constricted) {
+      const cp = this.chokepointPos
+      const time = Date.now() * 0.001
+      const pulse = 0.5 + 0.3 * Math.sin(time * 2)
+      const layers = 5
       for (let i = layers; i >= 0; i--) {
-        const r = (6 + i * 5) * (1 + (this.constricted ? Math.sin(time * 2.5) * 0.15 : 0))
-        const a = basePulse * (0.25 - i * 0.05)
-        this.chokepointGlow.beginFill(0xFF5555, Math.max(0.01, a))
-        this.chokepointGlow.drawCircle(
-          this.chokepointPos.x,
-          this.chokepointPos.y,
-          r,
-        )
-        this.chokepointGlow.endFill()
+        const r = (4 + i * 4) * (1 + this.pressure * 0.3)
+        const a = 0.03 * pulse * (layers - i + 1) * this.pressure
+        this.gfx.beginFill(0xFF4444, Math.min(0.15, a))
+        this.gfx.drawCircle(cp.x, cp.y, r)
+        this.gfx.endFill()
       }
     }
 
-    // ── Perspective emphasis ────────────────────────────────────────
-    // Nurse dims shipping; driver keeps full
-    const dimForPerspective = this.perspective === 'nurse' ? 0.5 : 1.0
-    this.container.alpha = dimForPerspective
+    // Port destination glow
+    if (this.portPos) {
+      this.gfx.beginFill(PIXI.utils.string2hex(COLORS.household), 0.08)
+      this.gfx.drawCircle(this.portPos.x, this.portPos.y, 10)
+      this.gfx.endFill()
+      this.gfx.beginFill(PIXI.utils.string2hex(COLORS.household), 0.3)
+      this.gfx.drawCircle(this.portPos.x, this.portPos.y, 4)
+      this.gfx.endFill()
+    }
+
+    // Perspective emphasis
+    this.container.alpha = this.perspective === 'nurse' ? 0.5 : 1.0
   }
 
-  // ── Visibility ───────────────────────────────────────────────────
+  private drawPathGuide(g: PIXI.Graphics, path: { x: number; y: number }[], color: number, alpha: number, width: number) {
+    if (path.length < 2) return
+    // Outer glow
+    g.lineStyle(width * 3, color, alpha * 0.3)
+    g.moveTo(path[0].x, path[0].y)
+    for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y)
+    // Core
+    g.lineStyle(width, color, alpha)
+    g.moveTo(path[0].x, path[0].y)
+    for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y)
+  }
+
+  /**
+   * Draw density bloom: where bodies cluster, glow brighter.
+   * Uses a grid sampling approach for O(n) performance.
+   */
+  private drawDensityBloom(g: PIXI.Graphics, color: number) {
+    const cellSize = 25
+    const density: Map<string, number> = new Map()
+
+    for (const v of this.vessels) {
+      const cx = Math.floor(v.body.position.x / cellSize)
+      const cy = Math.floor(v.body.position.y / cellSize)
+      const key = `${cx},${cy}`
+      density.set(key, (density.get(key) || 0) + 1)
+    }
+
+    for (const [key, count] of density) {
+      if (count < 3) continue // only show where bodies actually bunch
+      const [cx, cy] = key.split(',').map(Number)
+      const x = (cx + 0.5) * cellSize
+      const y = (cy + 0.5) * cellSize
+      const intensity = Math.min(1, count / 8)
+      // Soft bloom
+      g.beginFill(color, intensity * 0.06)
+      g.drawCircle(x, y, cellSize * 1.2)
+      g.endFill()
+      g.beginFill(color, intensity * 0.12)
+      g.drawCircle(x, y, cellSize * 0.6)
+      g.endFill()
+    }
+  }
 
   setVisible(visible: boolean) {
     this.container.visible = visible
   }
 
   clear() {
-    this.bands.forEach(b => b.container.destroy({ children: true }))
-    this.bands = []
+    for (const v of this.vessels) {
+      Matter.Composite.remove(this.engine.world, v.body)
+    }
+    this.vessels = []
+    for (const w of this.chokepointWalls) {
+      Matter.Composite.remove(this.engine.world, w)
+    }
+    this.chokepointWalls = []
+    this.gfx.clear()
+    this.densityGfx.clear()
+    this.pathGfx.clear()
   }
 
   dispose() {

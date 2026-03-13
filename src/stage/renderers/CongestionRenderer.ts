@@ -1,110 +1,173 @@
 import * as PIXI from 'pixi.js'
+import Matter from 'matter-js'
 import { COLORS } from '../../app/config/constants'
 
 /**
- * CongestionRenderer — Freight lens.
+ * CongestionRenderer — Freight lens. PHYSICS-FIRST.
  *
  * Human question: Why is the corridor slowing?
  *
- * Shows: Mombasa→Nairobi corridor as a dominant glowing band, convoy clusters
- * as small circles moving in bursts, depot accumulation as a radial glow,
- * bottleneck as corridor thinning, irregular spacing under pressure.
+ * What you SEE:
+ * - Bodies flowing through a walled corridor (Mombasa → Nairobi)
+ * - Bottleneck narrows: bodies physically pile up, cluster, push
+ * - Convoy clusters emerge from collision + friction differences
+ * - Irregular spacing — some clumps, some gaps
+ * - Corridor drag: bodies near walls move slower (friction)
+ * - Depot accumulation: bodies cluster at source before release
+ *
+ * Matter.js corridor walls + body collisions produce the patterns.
+ * Pixi renders body positions with velocity-based intensity.
  */
 
-interface ConvoyBead {
-  progress: number
-  speed: number
-  baseSpeed: number
-  radius: number
-  groupId: number
+interface FreightBody {
+  body: Matter.Body
+  waypointIdx: number
 }
-
-interface DepotParticle {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  radius: number
-}
-
-const FREIGHT_HEX = PIXI.utils.string2hex(COLORS.freight)
-
-// Convoy group config
-const GROUP_COUNT = 4
-const BEADS_PER_GROUP = 4 // 3-5 per group, we use 4 as midpoint
-const GROUP_GAP = 0.20 // 0.15-0.25 gap between groups
-const BEAD_CLUSTER_SPREAD = 0.015 // how close beads are within a group
 
 export class CongestionRenderer {
   private container: PIXI.Container
+  private bodyGfx: PIXI.Graphics
   private corridorGfx: PIXI.Graphics
-  private beadGfx: PIXI.Graphics
-  private depotGfx: PIXI.Graphics
+  private densityGfx: PIXI.Graphics
+
+  private engine: Matter.Engine
+  private bodies: FreightBody[] = []
+  private corridorWalls: Matter.Body[] = []
 
   private corridorPath: { x: number; y: number }[] = []
-  private beads: ConvoyBead[] = []
-
-  private depotParticles: DepotParticle[] = []
-  private attractorTarget: { x: number; y: number } | null = null
-  private accumulated = 0
-  private releaseThreshold = 40
+  private corridorWidth = 22
+  private bottleneckPos = 0.4 // fraction along corridor where bottleneck is
+  private bottleneckWidth = 8 // narrowest point
 
   private pressure = 0.5
   private perspective: 'nurse' | 'driver' | null = null
 
-  constructor(parent: PIXI.Container) {
+  private readonly BODY_COUNT = 50
+  private readonly FLOW_STRENGTH = 0.00003
+  private readonly WALL_SEGMENTS = 8
+
+  constructor(parent: PIXI.Container, engine: Matter.Engine) {
     this.container = new PIXI.Container()
     parent.addChild(this.container)
     this.container.visible = false
+    this.engine = engine
 
-    // Corridor band (3-pass glow)
     this.corridorGfx = new PIXI.Graphics()
     this.container.addChild(this.corridorGfx)
 
-    // Depot glow (drawn behind beads)
-    this.depotGfx = new PIXI.Graphics()
-    this.container.addChild(this.depotGfx)
+    this.densityGfx = new PIXI.Graphics()
+    this.container.addChild(this.densityGfx)
 
-    // All convoy beads share one Graphics object
-    this.beadGfx = new PIXI.Graphics()
-    this.container.addChild(this.beadGfx)
+    this.bodyGfx = new PIXI.Graphics()
+    this.container.addChild(this.bodyGfx)
   }
 
+  /**
+   * Set corridor path and build physics walls + bodies.
+   */
   setCorridor(path: { x: number; y: number }[]) {
     this.corridorPath = path
-    this.beads = []
-    // Spawn convoy clusters: GROUP_COUNT groups, each with 3-5 beads
-    for (let g = 0; g < GROUP_COUNT; g++) {
-      const groupBase = (g / GROUP_COUNT) * (1 - GROUP_GAP) + (g * GROUP_GAP) / GROUP_COUNT
-      const beadCount = 3 + Math.floor(Math.random() * 3) // 3-5
-      for (let b = 0; b < beadCount; b++) {
-        this.beads.push({
-          progress: (groupBase + b * BEAD_CLUSTER_SPREAD) % 1,
-          baseSpeed: 0.0008 + Math.random() * 0.0006,
-          speed: 0.0008 + Math.random() * 0.0006,
-          radius: 2 + Math.random() * 1.5, // 2-3.5
-          groupId: g,
+    this.buildCorridorWalls()
+    this.spawnFreightBodies()
+  }
+
+  private buildCorridorWalls() {
+    // Remove old walls
+    for (const w of this.corridorWalls) {
+      Matter.Composite.remove(this.engine.world, w)
+    }
+    this.corridorWalls = []
+
+    if (this.corridorPath.length < 2) return
+
+    // Build wall segments along each side of the corridor
+    const path = this.corridorPath
+    const totalLen = this.pathLength(path)
+    const segLen = totalLen / this.WALL_SEGMENTS
+
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < this.WALL_SEGMENTS; i++) {
+        const t = (i + 0.5) / this.WALL_SEGMENTS
+        const pt = this.samplePath(path, t)
+        const ptNext = this.samplePath(path, Math.min(1, t + 0.01))
+        const dx = ptNext.x - pt.x
+        const dy = ptNext.y - pt.y
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len < 0.1) continue
+
+        // Normal perpendicular to path direction
+        const nx = -dy / len
+        const ny = dx / len
+
+        // Corridor width varies: narrows at bottleneck
+        const distToBottleneck = Math.abs(t - this.bottleneckPos)
+        const narrowFactor = Math.max(0, 1 - distToBottleneck * 4)
+        const localWidth = this.corridorWidth - narrowFactor * (this.corridorWidth - this.bottleneckWidth) * this.pressure
+
+        const wx = pt.x + nx * side * localWidth / 2
+        const wy = pt.y + ny * side * localWidth / 2
+        const angle = Math.atan2(dy, dx)
+
+        const wall = Matter.Bodies.rectangle(wx, wy, segLen * 1.2, 4, {
+          isStatic: true,
+          angle,
+          label: 'corridor_wall',
+          collisionFilter: { category: 0x0008, mask: 0x0004 },
         })
+        Matter.Composite.add(this.engine.world, wall)
+        this.corridorWalls.push(wall)
       }
     }
   }
 
-  setAttractor(target: { x: number; y: number }) {
-    this.attractorTarget = target
+  private spawnFreightBodies() {
+    // Remove old bodies
+    for (const fb of this.bodies) {
+      Matter.Composite.remove(this.engine.world, fb.body)
+    }
+    this.bodies = []
+
+    if (this.corridorPath.length < 2) return
+
+    for (let i = 0; i < this.BODY_COUNT; i++) {
+      const t = Math.random()
+      const pt = this.samplePath(this.corridorPath, t)
+      // Varying sizes = irregular spacing naturally
+      const radius = 1.5 + Math.random() * 2.0
+      const body = Matter.Bodies.circle(
+        pt.x + (Math.random() - 0.5) * 8,
+        pt.y + (Math.random() - 0.5) * 8,
+        radius,
+        {
+          density: 0.0005 + Math.random() * 0.0005,
+          frictionAir: 0.02 + Math.random() * 0.03,
+          restitution: 0.2,
+          friction: 0.1 + Math.random() * 0.1,
+          label: 'freight',
+          collisionFilter: { category: 0x0004, mask: 0x0004 | 0x0008 },
+        },
+      )
+      Matter.Composite.add(this.engine.world, body)
+      const waypointIdx = Math.max(0, Math.floor(t * (this.corridorPath.length - 1)))
+      this.bodies.push({ body, waypointIdx })
+    }
   }
 
-  spawn(x: number, y: number) {
-    this.depotParticles.push({
-      x,
-      y,
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
-      radius: 1.5 + Math.random() * 1.5,
-    })
+  setAttractor(_target: { x: number; y: number }) {
+    // Legacy API compat — no-op, flow is now physics-driven
+  }
+
+  spawn(_x: number, _y: number) {
+    // Legacy API compat — bodies are spawned by setCorridor
   }
 
   setPressure(p: number) {
+    const old = this.pressure
     this.pressure = Math.max(0, Math.min(1.5, p))
+    // Rebuild walls when pressure changes significantly (bottleneck narrows)
+    if (Math.abs(old - this.pressure) > 0.15 && this.corridorPath.length >= 2) {
+      this.buildCorridorWalls()
+    }
   }
 
   setPerspective(role: 'nurse' | 'driver' | null) {
@@ -112,196 +175,213 @@ export class CongestionRenderer {
   }
 
   update(delta: number) {
-    const dt = delta * 60
-    const time = Date.now() * 0.001
-    const speedMod = 1.0 - this.pressure * 0.5
+    const freightHex = PIXI.utils.string2hex(COLORS.freight)
+    const path = this.corridorPath
 
-    this.drawCorridor(time)
-    this.updateBeads(dt, time, speedMod)
-    this.drawBeads(time)
-    this.drawDepotGlow(time)
-    this.updateDepotParticles(dt, time)
+    if (path.length < 2) return
+
+    // ── Apply flow forces: attract bodies toward next waypoint ──
+    const lastIdx = path.length - 1
+    for (const fb of this.bodies) {
+      const target = path[Math.min(fb.waypointIdx, lastIdx)]
+      const dx = target.x - fb.body.position.x
+      const dy = target.y - fb.body.position.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+
+      // Advance waypoint
+      if (dist < 15 && fb.waypointIdx < lastIdx) {
+        fb.waypointIdx++
+      }
+
+      // Recycle at end
+      if (fb.waypointIdx >= lastIdx && dist < 20) {
+        const start = path[0]
+        Matter.Body.setPosition(fb.body, {
+          x: start.x + (Math.random() - 0.5) * 15,
+          y: start.y + (Math.random() - 0.5) * 15,
+        })
+        Matter.Body.setVelocity(fb.body, { x: 0, y: 0 })
+        fb.waypointIdx = 0
+        continue
+      }
+
+      // Attract toward waypoint — slower under pressure
+      if (dist > 2) {
+        const flowStr = this.FLOW_STRENGTH * (1 - this.pressure * 0.4)
+        Matter.Body.applyForce(fb.body, fb.body.position, {
+          x: (dx / dist) * flowStr,
+          y: (dy / dist) * flowStr,
+        })
+      }
+    }
+
+    // ── RENDER ──
+    this.corridorGfx.clear()
+    this.densityGfx.clear()
+    this.bodyGfx.clear()
+
+    // Draw corridor guide (dim background showing the path + walls)
+    this.drawCorridorGuide(this.corridorGfx, freightHex)
+
+    // Density field along corridor
+    this.drawDensityField(this.densityGfx, freightHex)
+
+    // Draw freight bodies
+    for (const fb of this.bodies) {
+      const bx = fb.body.position.x
+      const by = fb.body.position.y
+      const rad = (fb.body as any).circleRadius || 2
+      const speed = Math.sqrt(fb.body.velocity.x ** 2 + fb.body.velocity.y ** 2)
+
+      // Slow/stuck bodies glow brighter (pileup indicator)
+      const stuckGlow = Math.max(0, 0.2 - speed * 0.05)
+      if (stuckGlow > 0.03) {
+        this.bodyGfx.beginFill(freightHex, stuckGlow)
+        this.bodyGfx.drawCircle(bx, by, rad * 2.5)
+        this.bodyGfx.endFill()
+      }
+
+      // Core body: alpha tied to velocity (slower = more visible = "stuck")
+      const alpha = 0.4 + Math.min(0.5, 0.3 / (speed + 0.3))
+      this.bodyGfx.beginFill(freightHex, alpha)
+      this.bodyGfx.drawCircle(bx, by, rad)
+      this.bodyGfx.endFill()
+
+      // Contact/pressure glow when colliding
+      if (speed > 2) {
+        this.bodyGfx.lineStyle(0.5, 0xFFFFFF, Math.min(0.2, speed * 0.03))
+        this.bodyGfx.drawCircle(bx, by, rad + 0.5)
+        this.bodyGfx.lineStyle(0)
+      }
+    }
 
     // Driver perspective: full alpha. Other: 0.75.
     this.container.alpha = this.perspective === 'driver' ? 1.0 : 0.75
   }
 
-  // ── Corridor band: 3-pass multi-width glow with bottleneck thinning ──
-
-  private drawCorridor(time: number) {
-    this.corridorGfx.clear()
-    if (this.corridorPath.length < 2) return
-
-    // Bottleneck thinning factor at each point: near the start (progress < 0.3)
-    // the band narrows under pressure
-    const passes = [
-      { widthBase: 16, alpha: 0.04 + this.pressure * 0.02 },   // wide dim
-      { widthBase: 9, alpha: 0.08 + this.pressure * 0.03 },    // medium softer
-      { widthBase: 3, alpha: 0.25 + this.pressure * 0.06 },    // narrow bright
-    ]
-
-    for (const pass of passes) {
-      this.drawGlowingPath(pass.widthBase, pass.alpha, time)
-    }
-  }
-
-  private drawGlowingPath(widthBase: number, alpha: number, _time: number) {
+  private drawCorridorGuide(g: PIXI.Graphics, color: number) {
     const path = this.corridorPath
-    const total = path.length - 1
+    if (path.length < 2) return
 
-    // Draw segment by segment so we can vary width for bottleneck thinning
-    for (let i = 0; i < total; i++) {
-      const t = i / total // progress along corridor
-      // Bottleneck: thinning near the start under pressure
-      let thinFactor = 1.0
-      if (t < 0.3 && this.pressure > 0.3) {
-        // Maximum thinning at t=0.15
-        const proximity = 1.0 - Math.abs(t - 0.15) / 0.15
-        thinFactor = 1.0 - proximity * this.pressure * 0.5
+    // Draw corridor edges as dim lines
+    for (let side = -1; side <= 1; side += 2) {
+      g.lineStyle(1, color, 0.06)
+      let started = false
+      for (let i = 0; i <= 20; i++) {
+        const t = i / 20
+        const pt = this.samplePath(path, t)
+        const ptNext = this.samplePath(path, Math.min(1, t + 0.01))
+        const dx = ptNext.x - pt.x
+        const dy = ptNext.y - pt.y
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len < 0.01) continue
+        const nx = -dy / len
+        const ny = dx / len
+
+        const distToBottleneck = Math.abs(t - this.bottleneckPos)
+        const narrowFactor = Math.max(0, 1 - distToBottleneck * 4)
+        const localWidth = this.corridorWidth - narrowFactor * (this.corridorWidth - this.bottleneckWidth) * this.pressure
+
+        const wx = pt.x + nx * side * localWidth / 2
+        const wy = pt.y + ny * side * localWidth / 2
+
+        if (!started) { g.moveTo(wx, wy); started = true }
+        else g.lineTo(wx, wy)
       }
-      const w = widthBase * thinFactor + this.pressure * widthBase * 0.15
-      this.corridorGfx.lineStyle(w, FREIGHT_HEX, alpha)
-      this.corridorGfx.moveTo(path[i].x, path[i].y)
-      this.corridorGfx.lineTo(path[i + 1].x, path[i + 1].y)
+    }
+
+    // Center flow line (very dim)
+    g.lineStyle(0.5, color, 0.04)
+    g.moveTo(path[0].x, path[0].y)
+    for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y)
+  }
+
+  private drawDensityField(g: PIXI.Graphics, color: number) {
+    // Sample density along corridor using bins
+    const path = this.corridorPath
+    if (path.length < 2) return
+    const bins = 15
+    const counts: number[] = new Array(bins).fill(0)
+    const totalLen = this.pathLength(path)
+
+    for (const fb of this.bodies) {
+      // Project body onto corridor to find which bin
+      const t = this.projectOntoPath(path, fb.body.position)
+      const bin = Math.min(bins - 1, Math.floor(t * bins))
+      counts[bin]++
+    }
+
+    for (let i = 0; i < bins; i++) {
+      if (counts[i] < 2) continue
+      const t = (i + 0.5) / bins
+      const pt = this.samplePath(path, t)
+      const intensity = Math.min(1, counts[i] / 8)
+      // Wider, dimmer bloom for high density
+      g.beginFill(color, intensity * 0.08)
+      g.drawCircle(pt.x, pt.y, 12 + intensity * 10)
+      g.endFill()
     }
   }
 
-  // ── Convoy beads: group movement with irregular spacing under pressure ──
+  // ── Path utilities ──
 
-  private updateBeads(dt: number, _time: number, speedMod: number) {
-    if (this.corridorPath.length < 2) return
-
-    for (const bead of this.beads) {
-      // Base movement
-      let effectiveSpeed = bead.baseSpeed * speedMod * dt
-
-      // Under pressure, beads near the start (progress < 0.3) slow down unevenly
-      if (this.pressure > 0.3 && bead.progress < 0.3) {
-        // Irregular slowdown: use sin with bead-specific offset for uneven clumping
-        const slowFactor = this.pressure * (0.5 + 0.4 * Math.sin(bead.progress * 30 + bead.groupId * 2.1))
-        effectiveSpeed *= Math.max(0.05, 1.0 - slowFactor)
-      }
-
-      bead.speed = effectiveSpeed / dt // store for potential use
-      bead.progress += effectiveSpeed
-
-      // Wrap
-      if (bead.progress > 1) bead.progress -= 1
-      if (bead.progress < 0) bead.progress += 1
+  private pathLength(path: { x: number; y: number }[]): number {
+    let len = 0
+    for (let i = 1; i < path.length; i++) {
+      const dx = path[i].x - path[i - 1].x
+      const dy = path[i].y - path[i - 1].y
+      len += Math.sqrt(dx * dx + dy * dy)
     }
+    return len
   }
 
-  private drawBeads(time: number) {
-    this.beadGfx.clear()
-    if (this.corridorPath.length < 2) return
-
-    const totalSegs = this.corridorPath.length - 1
-
-    for (const bead of this.beads) {
-      const t = bead.progress
-      const seg = Math.min(Math.floor(t * totalSegs), totalSegs - 1)
-      const lt = t * totalSegs - seg
-
-      const x =
-        this.corridorPath[seg].x +
-        (this.corridorPath[seg + 1].x - this.corridorPath[seg].x) * lt
-      const y =
-        this.corridorPath[seg].y +
-        (this.corridorPath[seg + 1].y - this.corridorPath[seg].y) * lt
-
-      // Pulsing alpha per bead
-      const pulseAlpha =
-        0.6 + Math.sin(time * 2 + bead.progress * 20 + bead.groupId) * this.pressure * 0.25
-
-      // Soft outer glow per bead
-      this.beadGfx.beginFill(FREIGHT_HEX, pulseAlpha * 0.25)
-      this.beadGfx.drawCircle(x, y, bead.radius * 2)
-      this.beadGfx.endFill()
-
-      // Core circle
-      this.beadGfx.beginFill(FREIGHT_HEX, pulseAlpha)
-      this.beadGfx.drawCircle(x, y, bead.radius)
-      this.beadGfx.endFill()
-    }
-  }
-
-  // ── Depot accumulation glow: concentric circles with decreasing alpha ──
-
-  private drawDepotGlow(time: number) {
-    this.depotGfx.clear()
-    if (!this.attractorTarget) return
-
-    const { x, y } = this.attractorTarget
-    const intensity = 0.1 + this.pressure * 0.35
-    const breathe = Math.sin(time * 1.5) * 3
-
-    // Concentric rings: outermost to innermost, decreasing radius, increasing alpha
-    const rings = [
-      { r: 28 + this.pressure * 18 + breathe, alphaScale: 0.12 },
-      { r: 20 + this.pressure * 12 + breathe * 0.7, alphaScale: 0.22 },
-      { r: 12 + this.pressure * 6 + breathe * 0.4, alphaScale: 0.35 },
-      { r: 5 + this.pressure * 3, alphaScale: 0.55 },
-    ]
-
-    for (const ring of rings) {
-      this.depotGfx.beginFill(FREIGHT_HEX, intensity * ring.alphaScale)
-      this.depotGfx.drawCircle(x, y, ring.r)
-      this.depotGfx.endFill()
-    }
-
-    // Draw accumulated depot particles as small circles
-    for (let i = 0; i < this.depotParticles.length; i++) {
-      const p = this.depotParticles[i]
-      const alpha = 0.3 + 0.2 * Math.sin(time * 2 + i)
-      this.depotGfx.beginFill(FREIGHT_HEX, alpha)
-      this.depotGfx.drawCircle(p.x, p.y, p.radius)
-      this.depotGfx.endFill()
-    }
-  }
-
-  // ── Depot particles: drift and accumulate ──
-
-  private updateDepotParticles(dt: number, _time: number) {
-    for (let i = 0; i < this.depotParticles.length; i++) {
-      const p = this.depotParticles[i]
-
-      if (this.attractorTarget) {
-        const dx = this.attractorTarget.x - p.x
-        const dy = this.attractorTarget.y - p.y
-        const dist = Math.sqrt(dx * dx + dy * dy)
-
-        if (dist > 5) {
-          const force = 0.00003 * dist * (1 + this.pressure)
-          p.vx += (dx / dist) * force * dt
-          p.vy += (dy / dist) * force * dt
-        } else {
-          this.accumulated++
+  private samplePath(path: { x: number; y: number }[], t: number): { x: number; y: number } {
+    if (path.length < 2) return path[0] || { x: 0, y: 0 }
+    const totalLen = this.pathLength(path)
+    let target = t * totalLen
+    for (let i = 1; i < path.length; i++) {
+      const dx = path[i].x - path[i - 1].x
+      const dy = path[i].y - path[i - 1].y
+      const segLen = Math.sqrt(dx * dx + dy * dy)
+      if (target <= segLen || i === path.length - 1) {
+        const lt = segLen > 0 ? target / segLen : 0
+        return {
+          x: path[i - 1].x + dx * Math.min(1, lt),
+          y: path[i - 1].y + dy * Math.min(1, lt),
         }
       }
-
-      p.vx *= 0.97
-      p.vy *= 0.97
-      p.x += p.vx * dt
-      p.y += p.vy * dt
+      target -= segLen
     }
-
-    if (this.accumulated >= this.releaseThreshold) {
-      this.accumulated = 0
-      this.releasePulse()
-    }
+    return path[path.length - 1]
   }
 
-  private releasePulse() {
-    if (!this.attractorTarget) return
-    for (const p of this.depotParticles) {
-      const dx = p.x - this.attractorTarget.x
-      const dy = p.y - this.attractorTarget.y
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist < 30 && dist > 0) {
-        p.vx += (dx / dist) * 1.5
-        p.vy += (dy / dist) * 1.5
+  private projectOntoPath(path: { x: number; y: number }[], pos: { x: number; y: number }): number {
+    const totalLen = this.pathLength(path)
+    if (totalLen === 0) return 0
+    let bestT = 0
+    let bestDist = Infinity
+    let accumulated = 0
+
+    for (let i = 1; i < path.length; i++) {
+      const dx = path[i].x - path[i - 1].x
+      const dy = path[i].y - path[i - 1].y
+      const segLen = Math.sqrt(dx * dx + dy * dy)
+      if (segLen < 0.01) { accumulated += segLen; continue }
+
+      // Project pos onto segment
+      const t = Math.max(0, Math.min(1,
+        ((pos.x - path[i - 1].x) * dx + (pos.y - path[i - 1].y) * dy) / (segLen * segLen),
+      ))
+      const projX = path[i - 1].x + dx * t
+      const projY = path[i - 1].y + dy * t
+      const d = Math.sqrt((pos.x - projX) ** 2 + (pos.y - projY) ** 2)
+      if (d < bestDist) {
+        bestDist = d
+        bestT = (accumulated + t * segLen) / totalLen
       }
+      accumulated += segLen
     }
+    return bestT
   }
 
   setVisible(visible: boolean) {
@@ -309,12 +389,17 @@ export class CongestionRenderer {
   }
 
   clear() {
-    this.beads = []
-    this.beadGfx.clear()
-    this.depotParticles = []
-    this.depotGfx.clear()
+    for (const fb of this.bodies) {
+      Matter.Composite.remove(this.engine.world, fb.body)
+    }
+    this.bodies = []
+    for (const w of this.corridorWalls) {
+      Matter.Composite.remove(this.engine.world, w)
+    }
+    this.corridorWalls = []
+    this.bodyGfx.clear()
     this.corridorGfx.clear()
-    this.accumulated = 0
+    this.densityGfx.clear()
   }
 
   dispose() {

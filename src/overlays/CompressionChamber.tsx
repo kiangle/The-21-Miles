@@ -236,36 +236,81 @@ export default function CompressionChamber({ impact, visible, currency, future }
         }
       }
 
-      // ── Render tokens — circles with subtle bloom ──
+      // ── Render tokens — physics-driven: collision bloom, squeeze, competition ──
       tokenGfx.clear()
+
+      // First pass: draw inter-token collision lines (shows competition for space)
+      for (let a = 0; a < tokens.length; a++) {
+        const ta = tokens[a]
+        const ax = ta.body.position.x
+        const ay = ta.body.position.y
+        const ar = (ta.body as any).circleRadius || 10
+        for (let b = a + 1; b < tokens.length; b++) {
+          const tb = tokens[b]
+          const bxx = tb.body.position.x
+          const byy = tb.body.position.y
+          const br = (tb.body as any).circleRadius || 10
+          const dx = bxx - ax
+          const dy = byy - ay
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          const overlap = (ar + br) - dist
+          // Draw contact stress line when bodies are touching or overlapping
+          if (overlap > -2 && dist > 0) {
+            const contactAlpha = Math.min(0.2, Math.max(0, overlap + 2) * 0.04)
+            if (contactAlpha > 0.02) {
+              tokenGfx.lineStyle(0.8, 0xFFFFFF, contactAlpha)
+              tokenGfx.moveTo(ax, ay)
+              tokenGfx.lineTo(bxx, byy)
+              tokenGfx.lineStyle(0)
+            }
+          }
+        }
+      }
+
+      // Second pass: draw tokens with velocity + proximity-based rendering
       for (const token of tokens) {
         const bx = token.body.position.x
         const by = token.body.position.y
         const rad = (token.body as any).circleRadius || 10
-
-        // Soft outer bloom
         const speed = Math.sqrt(token.body.velocity.x ** 2 + token.body.velocity.y ** 2)
-        const bloomA = Math.min(0.15, speed * 0.03)
+
+        // Proximity to walls: closer = more squeeze visible
+        const innerX = padding + leftInset + wallThickness
+        const innerY = padding + topInset + wallThickness
+        const innerW = chamberSize - leftInset - rightInset - wallThickness * 2
+        const innerH = chamberSize - topInset - bottomInset - wallThickness * 2
+        const wallDist = Math.min(
+          bx - innerX, innerX + innerW - bx,
+          by - innerY, innerY + innerH - by,
+        )
+        const wallProximity = Math.max(0, 1 - wallDist / 30) // 1 = touching wall, 0 = far
+
+        // Collision bloom: bigger when moving fast OR near walls
+        const bloomA = Math.min(0.25, speed * 0.04 + wallProximity * 0.12)
         if (bloomA > 0.02) {
           tokenGfx.beginFill(token.color, bloomA)
-          tokenGfx.drawCircle(bx, by, rad * 1.6)
+          tokenGfx.drawCircle(bx, by, rad * 1.8)
           tokenGfx.endFill()
         }
 
-        // Main token circle
-        tokenGfx.beginFill(token.color, 0.65)
+        // Main token: opacity increases when squeezed near walls
+        const mainAlpha = 0.6 + wallProximity * 0.25
+        tokenGfx.beginFill(token.color, mainAlpha)
         tokenGfx.drawCircle(bx, by, rad)
         tokenGfx.endFill()
 
-        // Subtle inner highlight
-        tokenGfx.beginFill(0xFFFFFF, 0.06)
-        tokenGfx.drawCircle(bx - rad * 0.2, by - rad * 0.2, rad * 0.5)
-        tokenGfx.endFill()
-
-        // Pressure contact glow — tokens near walls glow brighter
-        if (speed > 1.5) {
-          tokenGfx.lineStyle(1, 0xFFFFFF, Math.min(0.3, speed * 0.06))
+        // Wall contact glow — red tint when pressed against wall
+        if (wallProximity > 0.5) {
+          const contactA = (wallProximity - 0.5) * 0.4
+          tokenGfx.lineStyle(1.5, 0xCC4444, contactA)
           tokenGfx.drawCircle(bx, by, rad + 1)
+          tokenGfx.lineStyle(0)
+        }
+
+        // Speed ring (white) — collision energy visible
+        if (speed > 1.5) {
+          tokenGfx.lineStyle(0.8, 0xFFFFFF, Math.min(0.25, speed * 0.05))
+          tokenGfx.drawCircle(bx, by, rad + 2)
           tokenGfx.lineStyle(0)
         }
       }

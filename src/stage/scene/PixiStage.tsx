@@ -14,11 +14,12 @@ import type { LensId, SceneId, TimeId, FutureId } from '../../state/machine/worl
 /**
  * PixiStage — the 2D living world.
  *
- * Matter.js = hidden physical logic (blockage, queue, squeeze, competition).
- * Pixi = visible systemic theatre (flow, trails, glow, rhythm, depletion).
+ * ONE shared Matter.js engine drives ALL renderers.
+ * Each renderer owns its own bodies in the shared world.
+ * The engine ticks once per frame; renderers read body positions.
  *
- * Every tray control (lens, time, future, perspective) creates a visible
- * change in this stage.
+ * Matter.js = physical behavior (queueing, bunching, bottleneck, competition).
+ * Pixi = visual clarity (density bloom, trail, glow, color shift).
  */
 
 interface PixiStageProps {
@@ -33,7 +34,6 @@ interface PixiStageProps {
   visible: boolean
 }
 
-// Time pressure: how far the crisis has progressed
 const TIME_PRESSURE: Record<TimeId, number> = {
   day1: 0.2,
   day3: 0.45,
@@ -41,7 +41,6 @@ const TIME_PRESSURE: Record<TimeId, number> = {
   month1: 1.0,
 }
 
-// Future pressure multiplier
 const FUTURE_PRESSURE: Record<FutureId, number> = {
   baseline: 1.0,
   redSea: 1.5,
@@ -80,7 +79,7 @@ export default function PixiStage({
     pulses: PulseRenderer
     margins: MarginRenderer
   } | null>(null)
-  const matterRef = useRef<{ engine: Matter.Engine; bodies: Matter.Body[] } | null>(null)
+  const engineRef = useRef<Matter.Engine | null>(null)
 
   const initPixi = useCallback(async () => {
     if (!containerRef.current || appRef.current) return
@@ -100,76 +99,51 @@ export default function PixiStage({
     const h = app.screen.height
     const POS = computePositions(w, h)
 
-    // ── Matter.js physics — chokepoint bunching ──
+    // ── ONE shared Matter.js engine for all renderers ──
     const engine = Matter.Engine.create({
       gravity: { x: 0, y: 0 },
       enableSleeping: true,
       positionIterations: 8,
+      constraintIterations: 4,
     })
+    engineRef.current = engine
 
-    const hormuzX = POS.hormuz.x
-    const hormuzY = POS.hormuz.y
-
-    const wallTop = Matter.Bodies.rectangle(hormuzX, hormuzY - 35, 80, 10, { isStatic: true })
-    const wallBot = Matter.Bodies.rectangle(hormuzX, hormuzY + 35, 80, 10, { isStatic: true })
-    Matter.Composite.add(engine.world, [wallTop, wallBot])
-
-    // More vessels for denser visual
-    const matterBodies: Matter.Body[] = []
-    for (let i = 0; i < 60; i++) {
-      const body = Matter.Bodies.circle(
-        hormuzX + (Math.random() - 0.5) * 70,
-        hormuzY + (Math.random() - 0.5) * 60,
-        2 + Math.random() * 2.5,
-        { density: 0.0005, frictionAir: 0.04, restitution: 0.3, label: 'vessel' },
-      )
-      Matter.Composite.add(engine.world, body)
-      matterBodies.push(body)
-    }
-    matterRef.current = { engine, bodies: matterBodies }
-
-    // ── Pixi renderers ──
-    const flowBands = new FlowBandRenderer(app.stage)
-    const congestion = new CongestionRenderer(app.stage)
+    // ── Pixi renderers — each receives the shared engine ──
+    const flowBands = new FlowBandRenderer(app.stage, engine)
+    const congestion = new CongestionRenderer(app.stage, engine)
     const filaments = new FilamentRenderer(app.stage)
-    const pulses = new PulseRenderer(app.stage)
-    const margins = new MarginRenderer(app.stage)
+    const pulses = new PulseRenderer(app.stage, engine)
+    const margins = new MarginRenderer(app.stage, engine)
     const split = new SplitFutureRenderer(app.stage, w, h)
 
     renderersRef.current = { flowBands, congestion, filaments, pulses, margins }
     splitRef.current = split
 
-    // ── SHIPPING: flow lanes with particles ──
+    // ── SHIPPING: flow lanes → physics-driven vessels ──
     flowBands.addBand(
       [POS.hormuz, { x: w * 0.72, y: h * 0.22 }, POS.babElMandeb, { x: w * 0.58, y: h * 0.35 }, POS.mombasa],
-      40, COLORS.shipping, 4, false,
+      0, COLORS.shipping, 4, false,
     )
     flowBands.addBand(
       [POS.capeTown, { x: w * 0.39, y: h * 0.60 }, { x: w * 0.44, y: h * 0.52 }, POS.mombasa],
-      20, '#D4763C', 3, true,
+      0, '#D4763C', 3, true,
     )
-    flowBands.addBand([POS.suez, POS.babElMandeb], 25, '#5BA3CF', 3, false)
+    flowBands.addBand([POS.suez, POS.babElMandeb], 0, '#5BA3CF', 3, false)
     flowBands.addBand(
       [POS.mombasa, { x: w * 0.52, y: h * 0.46 }, POS.nairobi],
-      15, COLORS.household, 2.5, false,
+      0, COLORS.household, 2.5, false,
     )
     flowBands.setAnchors(POS.hormuz, POS.mombasa)
+    flowBands.initPhysics()
 
-    // ── FREIGHT: corridor + convoy beads ──
+    // ── FREIGHT: corridor → physics-driven bodies in walled channel ──
     congestion.setCorridor([
       POS.mombasa,
       { x: (POS.mombasa.x + POS.nairobi.x) / 2, y: (POS.mombasa.y + POS.nairobi.y) / 2 },
       POS.nairobi,
     ])
-    congestion.setAttractor(POS.mombasa)
-    for (let i = 0; i < 25; i++) {
-      congestion.spawn(
-        POS.mombasa.x + (Math.random() - 0.5) * 80,
-        POS.mombasa.y + (Math.random() - 0.5) * 60,
-      )
-    }
 
-    // ── MEDICINE: supply path + shelf + pulse points ──
+    // ── MEDICINE: supply path → physics-driven cadence bodies ──
     filaments.addFilament(POS.mombasa, POS.nairobi, 10)
     filaments.addFilament(POS.mombasa, POS.hospital, 8)
     pulses.setSupplyPath([
@@ -181,17 +155,17 @@ export default function PixiStage({
     pulses.addPulsePoint(POS.hospital.x, POS.hospital.y)
     pulses.addPulsePoint(POS.nairobi.x + 20, POS.nairobi.y - 10)
 
-    // ── FOOD: distribution flows + market/household nodes ──
+    // ── FOOD: distribution → physics-driven bodies with sink competition ──
     margins.addDistributionFlow(
       [POS.mombasa, { x: (POS.mombasa.x + POS.market.x) / 2, y: (POS.mombasa.y + POS.market.y) / 2 + 10 }, POS.market],
-      15, false,
+      0, false,
     )
-    margins.addDistributionFlow([POS.market, POS.household1], 8, true)
-    margins.addDistributionFlow([POS.market, POS.household2], 8, true)
-    margins.addDistributionFlow([POS.market, POS.household3], 6, true)
+    margins.addDistributionFlow([POS.market, POS.household1], 0, true)
+    margins.addDistributionFlow([POS.market, POS.household2], 0, true)
+    margins.addDistributionFlow([POS.market, POS.household3], 0, true)
     margins.addDistributionFlow(
       [POS.nairobi, { x: (POS.nairobi.x + POS.market.x) / 2, y: (POS.nairobi.y + POS.market.y) / 2 }, POS.market],
-      10, false,
+      0, false,
     )
     margins.addMarketNode(POS.market.x, POS.market.y, 'market')
     margins.addMarketNode(POS.household1.x, POS.household1.y, 'home')
@@ -199,59 +173,21 @@ export default function PixiStage({
     margins.addMarketNode(POS.household3.x, POS.household3.y, 'home')
     margins.addBand(POS.nairobi, { x: POS.nairobi.x + 60, y: POS.nairobi.y + 40 })
     margins.addBand(POS.hospital, { x: POS.hospital.x - 40, y: POS.hospital.y + 30 })
+    margins.initPhysics()
 
     // ── Morph controller ──
     const morph = new MorphController({ flowBands, congestion, filaments, pulses, margins })
     morph.showOnly('shipping')
     morphRef.current = morph
 
-    // ── Matter-driven graphics overlay — circles with bloom ──
-    const matterGfx = new PIXI.Graphics()
-    app.stage.addChild(matterGfx)
-
+    // ── Single ticker: engine ticks once, all renderers read body state ──
     app.ticker.add((delta) => {
       const dt = delta / 60
 
+      // One physics step for the shared engine
       Matter.Engine.update(engine, dt * 1000)
 
-      for (const body of matterBodies) {
-        const dx = hormuzX - body.position.x
-        const dy = hormuzY - body.position.y
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        if (dist > 5) {
-          const strength = 0.000002 * dist
-          Matter.Body.applyForce(body, body.position, {
-            x: (dx / dist) * strength,
-            y: (dy / dist) * strength,
-          })
-        }
-      }
-
-      matterGfx.clear()
-      for (const body of matterBodies) {
-        const bx = body.position.x
-        const by = body.position.y
-        const bunching = Math.min(1, 30 / Math.max(1, Math.sqrt((bx - hormuzX) ** 2 + (by - hormuzY) ** 2)))
-        const r = Math.round(200 + 55 * bunching)
-        const g = Math.round(169 - 80 * bunching)
-        const b = Math.round(110 - 60 * bunching)
-        const alpha = 0.5 + bunching * 0.4
-        const color = (r << 16) | (g << 8) | b
-        const rad = (body as any).circleRadius || 3
-
-        // Outer bloom
-        if (bunching > 0.3) {
-          matterGfx.beginFill(color, alpha * 0.12)
-          matterGfx.drawCircle(bx, by, rad * 2.5)
-          matterGfx.endFill()
-        }
-
-        // Main circle body
-        matterGfx.beginFill(color, alpha)
-        matterGfx.drawCircle(bx, by, rad)
-        matterGfx.endFill()
-      }
-
+      // Each renderer reads its bodies' positions and draws
       flowBands.update(dt)
       congestion.update(dt)
       filaments.update(dt)
@@ -268,17 +204,16 @@ export default function PixiStage({
         appRef.current.destroy(true, { children: true })
         appRef.current = null
       }
-      if (matterRef.current) {
-        Matter.Engine.clear(matterRef.current.engine)
-        matterRef.current = null
+      if (engineRef.current) {
+        Matter.Engine.clear(engineRef.current)
+        engineRef.current = null
       }
     }
   }, [initPixi])
 
-  // ── Lens morphing — every "Follow the..." click must visibly change the world ──
+  // ── Lens morphing ──
   useEffect(() => {
     if (!morphRef.current) return
-    // Allow lens switching from ALL landed scenes — tray must always work
     const landedScenes = ['baseline', 'rupture', 'detour', 'cascade', 'yourMonth', 'whatNext', 'split']
     if (landedScenes.includes(scene)) {
       morphRef.current.morphTo(lens)
@@ -298,7 +233,7 @@ export default function PixiStage({
     }
   }, [time, future])
 
-  // ── Perspective: roleId → visible emphasis change ──
+  // ── Perspective ──
   useEffect(() => {
     if (!morphRef.current) return
     morphRef.current.setPerspective(roleId)
