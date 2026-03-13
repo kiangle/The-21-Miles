@@ -94,7 +94,7 @@ const CORRIDOR_GEOJSON: GeoJSON.FeatureCollection = {
   }],
 }
 
-// ── Map style: dark, restrained, minimal ──
+// ── Map style: dark, legible, restrained ──
 const DARK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   name: 'twenty-one-miles',
@@ -111,50 +111,50 @@ const DARK_STYLE: maplibregl.StyleSpecification = {
       type: 'background',
       paint: { 'background-color': '#070710' },
     },
-    // East Africa landmass — barely visible context
+    // East Africa landmass — slightly more visible for context
     {
       id: 'land-fill',
       type: 'fill',
       source: 'land',
-      paint: { 'fill-color': '#0c0c15' },
+      paint: { 'fill-color': '#0e0e18' },
     },
-    // Kenya — subtly highlighted
+    // Kenya — raised fill, clearly distinguishable
     {
       id: 'kenya-fill',
       type: 'fill',
       source: 'kenya',
-      paint: { 'fill-color': '#12121e' },
+      paint: { 'fill-color': '#161624' },
     },
-    // Kenya border
+    // Kenya border — more visible
     {
       id: 'kenya-border',
       type: 'line',
       source: 'kenya',
       paint: {
-        'line-color': '#222235',
-        'line-width': 1.5,
+        'line-color': '#2a2a42',
+        'line-width': 1.8,
       },
     },
-    // Coastline — thin, understated
+    // Coastline — more readable
     {
       id: 'coastline',
       type: 'line',
       source: 'coastline',
       paint: {
-        'line-color': '#1a2040',
-        'line-width': 1,
+        'line-color': '#1e2850',
+        'line-width': 1.5,
       },
     },
-    // Mombasa–Nairobi corridor — gold, dashed
+    // Mombasa–Nairobi corridor — gold, dashed, cleaner
     {
       id: 'corridor',
       type: 'line',
       source: 'corridor',
       paint: {
         'line-color': '#C8A96E',
-        'line-width': 2,
-        'line-opacity': 0.25,
-        'line-dasharray': [4, 3],
+        'line-width': 2.5,
+        'line-opacity': 0.3,
+        'line-dasharray': [5, 3],
       },
     },
   ],
@@ -231,7 +231,7 @@ export default function MapRoot({ visible, bootstrap, countryId, ruptured, lens 
     map.on('load', () => {
       setMapReady(true)
 
-      // Add city markers as HTML elements (no glyph source needed)
+      // Add city markers — stronger labels
       const cities = [
         { name: 'Mombasa', coords: [39.67, -4.05] as [number, number], sub: 'port' },
         { name: 'Nairobi', coords: [36.82, -1.29] as [number, number], sub: 'capital' },
@@ -243,29 +243,29 @@ export default function MapRoot({ visible, bootstrap, countryId, ruptured, lens 
           display: flex; flex-direction: column; align-items: center;
           pointer-events: none;
         `
-        // Dot
+        // Dot — brighter, with stronger glow
         const dot = document.createElement('div')
         dot.style.cssText = `
-          width: 6px; height: 6px; border-radius: 50%;
-          background: #C8A96E; box-shadow: 0 0 8px rgba(200,169,110,0.4);
+          width: 7px; height: 7px; border-radius: 50%;
+          background: #C8A96E; box-shadow: 0 0 10px rgba(200,169,110,0.5), 0 0 20px rgba(200,169,110,0.2);
         `
         el.appendChild(dot)
-        // Label
+        // Label — larger, more visible
         const label = document.createElement('div')
         label.textContent = city.name
         label.style.cssText = `
-          color: rgba(200,169,110,0.7); font-size: 10px; margin-top: 3px;
+          color: rgba(200,169,110,0.85); font-size: 11px; margin-top: 4px;
           font-family: 'Instrument Sans', system-ui, sans-serif;
-          letter-spacing: 0.5px; white-space: nowrap;
-          text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+          letter-spacing: 0.6px; white-space: nowrap; font-weight: 500;
+          text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.5);
         `
         el.appendChild(label)
-        // Sub label
+        // Sub label — slightly more visible
         if (city.sub) {
           const sub = document.createElement('div')
           sub.textContent = city.sub
           sub.style.cssText = `
-            color: rgba(138,134,128,0.5); font-size: 8px;
+            color: rgba(138,134,128,0.6); font-size: 9px;
             font-family: 'Instrument Sans', system-ui, sans-serif;
             letter-spacing: 0.3px;
           `
@@ -334,12 +334,12 @@ export default function MapRoot({ visible, bootstrap, countryId, ruptured, lens 
       lens === 'freight' ? 0.6 :
       lens === 'medicine' ? 0.4 :
       lens === 'household' ? 0.35 :
-      0.25
+      0.3
 
     const corridorWidth =
-      lens === 'freight' ? 3 :
+      lens === 'freight' ? 3.5 :
       lens === 'medicine' ? 2.5 :
-      2
+      2.5
 
     try {
       map.setPaintProperty('corridor', 'line-opacity', corridorOpacity)

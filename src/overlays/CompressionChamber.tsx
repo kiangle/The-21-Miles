@@ -24,12 +24,12 @@ interface Props {
   future: FutureId
 }
 
-// Token categories with colors
+// Token categories — restrained, serious palette. Heavier categories get bigger tokens.
 const TOKEN_DEFS = [
-  { id: 'food', label: 'food', color: 0xD4763C, count: 5 },
-  { id: 'fuel', label: 'fuel', color: 0xE8B94A, count: 4 },
-  { id: 'medicine', label: 'medicine', color: 0xC44B3F, count: 3 },
-  { id: 'rent', label: 'rent', color: 0x8A8680, count: 4 },
+  { id: 'food', label: 'food', color: 0xB8754A, count: 5, radius: 14 },
+  { id: 'fuel', label: 'fuel', color: 0xA89060, count: 4, radius: 11 },
+  { id: 'medicine', label: 'medicine', color: 0x8B4040, count: 3, radius: 8 },
+  { id: 'rent', label: 'rent', color: 0x6B6860, count: 4, radius: 12 },
 ] as const
 
 const FUTURE_CHAMBER_MOD: Record<FutureId, number> = {
@@ -53,8 +53,8 @@ export default function CompressionChamber({ impact, visible, currency, future }
     if (!visible || !impact || !containerRef.current) return
     if (appRef.current) return // already mounted
 
-    const size = 280
-    const padding = 30
+    const size = 380
+    const padding = 35
 
     // ── Pixi application ──
     const app = new PIXI.Application({
@@ -70,12 +70,12 @@ export default function CompressionChamber({ impact, visible, currency, future }
 
     // ── Matter engine ──
     const engine = Matter.Engine.create({
-      gravity: { x: 0, y: 0.3 },
+      gravity: { x: 0, y: 0.4 },
       enableSleeping: false,
     })
 
     const chamberSize = size - padding * 2
-    const wallThickness = 8
+    const wallThickness = 10
 
     // Chamber walls (static bodies) — will animate inward
     const top = Matter.Bodies.rectangle(size / 2, padding - wallThickness / 2, chamberSize + wallThickness * 2, wallThickness, { isStatic: true })
@@ -85,23 +85,23 @@ export default function CompressionChamber({ impact, visible, currency, future }
 
     Matter.Composite.add(engine.world, [top, right, bottom, left])
 
-    // ── Token bodies ──
+    // ── Token bodies — heavier tokens for major categories ──
     const tokens: { body: Matter.Body; cat: string; color: number }[] = []
     const cx = size / 2
     const cy = size / 2
 
     for (const def of TOKEN_DEFS) {
       for (let i = 0; i < def.count; i++) {
-        const radius = 6 + Math.random() * 4
+        const radius = def.radius + (Math.random() - 0.5) * 4
         const body = Matter.Bodies.circle(
-          cx + (Math.random() - 0.5) * chamberSize * 0.5,
-          cy + (Math.random() - 0.5) * chamberSize * 0.5,
+          cx + (Math.random() - 0.5) * chamberSize * 0.4,
+          cy + (Math.random() - 0.5) * chamberSize * 0.4,
           radius,
           {
-            density: 0.002,
-            frictionAir: 0.02,
-            restitution: 0.4,
-            friction: 0.1,
+            density: 0.003,
+            frictionAir: 0.015,
+            restitution: 0.35,
+            friction: 0.15,
             label: def.id,
           },
         )
@@ -130,16 +130,18 @@ export default function CompressionChamber({ impact, visible, currency, future }
 
     // ── Pixi rendering layers ──
     const chamberOutline = new PIXI.Graphics()
-    const tokenGfx = new PIXI.Graphics()
     const wallGfx = new PIXI.Graphics()
+    const shadowGfx = new PIXI.Graphics()
+    const tokenGfx = new PIXI.Graphics()
     const textLayer = new PIXI.Container()
     app.stage.addChild(chamberOutline)
+    app.stage.addChild(shadowGfx)
     app.stage.addChild(wallGfx)
     app.stage.addChild(tokenGfx)
     app.stage.addChild(textLayer)
 
-    // Initial chamber outline (dashed feel)
-    chamberOutline.lineStyle(0.5, PIXI.utils.string2hex(COLORS.textSecondary), 0.3)
+    // Initial chamber outline — thin, understated
+    chamberOutline.lineStyle(0.5, PIXI.utils.string2hex(COLORS.textSecondary), 0.2)
     chamberOutline.drawRect(padding, padding, chamberSize, chamberSize)
 
     // ── Animate walls inward over time ──
@@ -151,9 +153,15 @@ export default function CompressionChamber({ impact, visible, currency, future }
       left: (insets.transport || 0) * chamberSize * futureMod,
     }
 
-    // Text elements — added after walls animate
-    let textAdded = false
+    // Wall colors — muted, serious
+    const wallColors = {
+      top: 0x9A7D50,    // fuel — muted gold
+      right: 0x8B5A3A,  // food — muted brown
+      bottom: 0x6B3535,  // heating — muted red
+      left: 0x7A7060,   // transport — muted warm grey
+    }
 
+    let textAdded = false
     animRef.current = true
 
     app.ticker.add(() => {
@@ -175,53 +183,88 @@ export default function CompressionChamber({ impact, visible, currency, future }
       Matter.Body.setPosition(bottom, { x: size / 2, y: size - padding - bottomInset / 2 })
       Matter.Body.setPosition(left, { x: padding + leftInset / 2, y: size / 2 })
 
+      // ── Shadow/bloom at walls ──
+      shadowGfx.clear()
+      if (wallProgress > 0.2) {
+        const shadowAlpha = (wallProgress - 0.2) * 0.12
+        // Inner shadow from each wall
+        for (let layer = 0; layer < 4; layer++) {
+          const spread = (4 - layer) * 6
+          const a = shadowAlpha * (layer + 1) * 0.25
+          shadowGfx.beginFill(0x000000, a)
+          shadowGfx.drawRect(
+            padding + leftInset + wallThickness - spread,
+            padding + topInset + wallThickness - spread,
+            chamberSize - leftInset - rightInset - wallThickness * 2 + spread * 2,
+            chamberSize - topInset - bottomInset - wallThickness * 2 + spread * 2,
+          )
+          shadowGfx.endFill()
+        }
+      }
+
       // ── Render walls ──
       wallGfx.clear()
       // Top wall (fuel)
-      wallGfx.beginFill(0xE8B94A, 0.6)
+      wallGfx.beginFill(wallColors.top, 0.5)
       wallGfx.drawRect(padding, padding, chamberSize, wallThickness + topInset)
       wallGfx.endFill()
       // Right wall (food)
-      wallGfx.beginFill(0xD4763C, 0.6)
+      wallGfx.beginFill(wallColors.right, 0.5)
       wallGfx.drawRect(size - padding - wallThickness - rightInset, padding, wallThickness + rightInset, chamberSize)
       wallGfx.endFill()
       // Bottom wall (heating)
-      wallGfx.beginFill(0xC44B3F, 0.6)
+      wallGfx.beginFill(wallColors.bottom, 0.5)
       wallGfx.drawRect(padding, size - padding - wallThickness - bottomInset, chamberSize, wallThickness + bottomInset)
       wallGfx.endFill()
       // Left wall (transport)
-      wallGfx.beginFill(0xC8A96E, 0.6)
+      wallGfx.beginFill(wallColors.left, 0.5)
       wallGfx.drawRect(padding, padding, wallThickness + leftInset, chamberSize)
       wallGfx.endFill()
 
-      // Pressure glow on walls
+      // Pressure bloom at walls — soft glow, not hard line
       if (wallProgress > 0.5) {
-        const glowAlpha = (wallProgress - 0.5) * 0.3
-        wallGfx.lineStyle(2, 0xFF3333, glowAlpha)
-        wallGfx.drawRect(
-          padding + leftInset + wallThickness,
-          padding + topInset + wallThickness,
-          chamberSize - leftInset - rightInset - wallThickness * 2,
-          chamberSize - topInset - bottomInset - wallThickness * 2,
-        )
+        const bloomAlpha = (wallProgress - 0.5) * 0.15
+        const innerX = padding + leftInset + wallThickness
+        const innerY = padding + topInset + wallThickness
+        const innerW = chamberSize - leftInset - rightInset - wallThickness * 2
+        const innerH = chamberSize - topInset - bottomInset - wallThickness * 2
+        // Soft red bloom
+        for (let i = 3; i >= 0; i--) {
+          const spread = i * 3
+          wallGfx.lineStyle(2 + i, 0xCC4444, bloomAlpha * (4 - i) * 0.25)
+          wallGfx.drawRect(innerX - spread, innerY - spread, innerW + spread * 2, innerH + spread * 2)
+        }
       }
 
-      // ── Render tokens ──
+      // ── Render tokens — circles with subtle bloom ──
       tokenGfx.clear()
       for (const token of tokens) {
         const bx = token.body.position.x
         const by = token.body.position.y
-        const rad = (token.body as any).circleRadius || 8
+        const rad = (token.body as any).circleRadius || 10
 
-        // Token circle
-        tokenGfx.beginFill(token.color, 0.7)
+        // Soft outer bloom
+        const speed = Math.sqrt(token.body.velocity.x ** 2 + token.body.velocity.y ** 2)
+        const bloomA = Math.min(0.15, speed * 0.03)
+        if (bloomA > 0.02) {
+          tokenGfx.beginFill(token.color, bloomA)
+          tokenGfx.drawCircle(bx, by, rad * 1.6)
+          tokenGfx.endFill()
+        }
+
+        // Main token circle
+        tokenGfx.beginFill(token.color, 0.65)
         tokenGfx.drawCircle(bx, by, rad)
         tokenGfx.endFill()
 
-        // Pressure indicator: squeezed tokens get brighter border
-        const speed = Math.sqrt(token.body.velocity.x ** 2 + token.body.velocity.y ** 2)
-        if (speed > 1) {
-          tokenGfx.lineStyle(1, 0xFFFFFF, Math.min(0.5, speed * 0.1))
+        // Subtle inner highlight
+        tokenGfx.beginFill(0xFFFFFF, 0.06)
+        tokenGfx.drawCircle(bx - rad * 0.2, by - rad * 0.2, rad * 0.5)
+        tokenGfx.endFill()
+
+        // Pressure contact glow — tokens near walls glow brighter
+        if (speed > 1.5) {
+          tokenGfx.lineStyle(1, 0xFFFFFF, Math.min(0.3, speed * 0.06))
           tokenGfx.drawCircle(bx, by, rad + 1)
           tokenGfx.lineStyle(0)
         }
@@ -233,32 +276,32 @@ export default function CompressionChamber({ impact, visible, currency, future }
 
         const hitText = new PIXI.Text(`${currency} ${totalHit.toLocaleString()}`, {
           fontFamily: "'Instrument Serif', Georgia, serif",
-          fontSize: 26,
+          fontSize: 30,
           fontWeight: 'bold',
           fill: COLORS.textPrimary,
         })
         hitText.anchor.set(0.5, 0.5)
-        hitText.position.set(size / 2, size / 2 - 12)
+        hitText.position.set(size / 2, size / 2 - 14)
         hitText.alpha = 0
         textLayer.addChild(hitText)
 
         const subText = new PIXI.Text('extra this month', {
           fontFamily: "'Instrument Sans', system-ui, sans-serif",
-          fontSize: 12,
+          fontSize: 13,
           fill: COLORS.textSecondary,
         })
         subText.anchor.set(0.5, 0.5)
-        subText.position.set(size / 2, size / 2 + 10)
+        subText.position.set(size / 2, size / 2 + 12)
         subText.alpha = 0
         textLayer.addChild(subText)
 
         const pctText = new PIXI.Text(`${Math.round(totalPct * 100)}% of income`, {
           fontFamily: "'Instrument Sans', system-ui, sans-serif",
-          fontSize: 13,
+          fontSize: 14,
           fill: COLORS.danger,
         })
         pctText.anchor.set(0.5, 0.5)
-        pctText.position.set(size / 2, size / 2 + 30)
+        pctText.position.set(size / 2, size / 2 + 34)
         pctText.alpha = 0
         textLayer.addChild(pctText)
 
@@ -285,21 +328,38 @@ export default function CompressionChamber({ impact, visible, currency, future }
 
   return (
     <div style={{
-      position: 'absolute',
-      bottom: 100,
-      left: '50%',
-      transform: 'translateX(-50%)',
-      zIndex: 20,
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 25,
+      pointerEvents: 'none',
     }}>
-      <div ref={containerRef} />
+      {/* Dim background overlay */}
       <div style={{
-        textAlign: 'center',
-        marginTop: 8,
-        color: COLORS.textSecondary,
-        fontSize: 11,
-        fontFamily: "'Instrument Sans', system-ui, sans-serif",
-      }}>
-        Updated {getTimeSince(impact.as_of_date)}
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        background: 'rgba(7,7,16,0.55)',
+        pointerEvents: 'none',
+      }} />
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <div ref={containerRef} />
+        <div style={{
+          textAlign: 'center',
+          marginTop: 10,
+          color: COLORS.textSecondary,
+          fontSize: 11,
+          fontFamily: "'Instrument Sans', system-ui, sans-serif",
+        }}>
+          Updated {getTimeSince(impact.as_of_date)}
+        </div>
       </div>
     </div>
   )

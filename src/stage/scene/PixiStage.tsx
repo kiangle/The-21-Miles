@@ -114,12 +114,13 @@ export default function PixiStage({
     const wallBot = Matter.Bodies.rectangle(hormuzX, hormuzY + 35, 80, 10, { isStatic: true })
     Matter.Composite.add(engine.world, [wallTop, wallBot])
 
+    // More vessels for denser visual
     const matterBodies: Matter.Body[] = []
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       const body = Matter.Bodies.circle(
-        hormuzX + (Math.random() - 0.5) * 60,
-        hormuzY + (Math.random() - 0.5) * 50,
-        2 + Math.random() * 2,
+        hormuzX + (Math.random() - 0.5) * 70,
+        hormuzY + (Math.random() - 0.5) * 60,
+        2 + Math.random() * 2.5,
         { density: 0.0005, frictionAir: 0.04, restitution: 0.3, label: 'vessel' },
       )
       Matter.Composite.add(engine.world, body)
@@ -138,19 +139,19 @@ export default function PixiStage({
     renderersRef.current = { flowBands, congestion, filaments, pulses, margins }
     splitRef.current = split
 
-    // ── SHIPPING: flow lanes with container packets ──
+    // ── SHIPPING: flow lanes with particles ──
     flowBands.addBand(
       [POS.hormuz, { x: w * 0.72, y: h * 0.22 }, POS.babElMandeb, { x: w * 0.58, y: h * 0.35 }, POS.mombasa],
-      30, COLORS.shipping, 3, false,
+      40, COLORS.shipping, 4, false,
     )
     flowBands.addBand(
       [POS.capeTown, { x: w * 0.39, y: h * 0.60 }, { x: w * 0.44, y: h * 0.52 }, POS.mombasa],
-      15, '#D4763C', 2, true,
+      20, '#D4763C', 3, true,
     )
-    flowBands.addBand([POS.suez, POS.babElMandeb], 20, '#5BA3CF', 2, false)
+    flowBands.addBand([POS.suez, POS.babElMandeb], 25, '#5BA3CF', 3, false)
     flowBands.addBand(
       [POS.mombasa, { x: w * 0.52, y: h * 0.46 }, POS.nairobi],
-      12, COLORS.household, 2, false,
+      15, COLORS.household, 2.5, false,
     )
     flowBands.setAnchors(POS.hormuz, POS.mombasa)
 
@@ -161,7 +162,7 @@ export default function PixiStage({
       POS.nairobi,
     ])
     congestion.setAttractor(POS.mombasa)
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 25; i++) {
       congestion.spawn(
         POS.mombasa.x + (Math.random() - 0.5) * 80,
         POS.mombasa.y + (Math.random() - 0.5) * 60,
@@ -183,14 +184,14 @@ export default function PixiStage({
     // ── FOOD: distribution flows + market/household nodes ──
     margins.addDistributionFlow(
       [POS.mombasa, { x: (POS.mombasa.x + POS.market.x) / 2, y: (POS.mombasa.y + POS.market.y) / 2 + 10 }, POS.market],
-      12, false,
+      15, false,
     )
-    margins.addDistributionFlow([POS.market, POS.household1], 6, true)
-    margins.addDistributionFlow([POS.market, POS.household2], 6, true)
-    margins.addDistributionFlow([POS.market, POS.household3], 5, true)
+    margins.addDistributionFlow([POS.market, POS.household1], 8, true)
+    margins.addDistributionFlow([POS.market, POS.household2], 8, true)
+    margins.addDistributionFlow([POS.market, POS.household3], 6, true)
     margins.addDistributionFlow(
       [POS.nairobi, { x: (POS.nairobi.x + POS.market.x) / 2, y: (POS.nairobi.y + POS.market.y) / 2 }, POS.market],
-      8, false,
+      10, false,
     )
     margins.addMarketNode(POS.market.x, POS.market.y, 'market')
     margins.addMarketNode(POS.household1.x, POS.household1.y, 'home')
@@ -204,7 +205,7 @@ export default function PixiStage({
     morph.showOnly('shipping')
     morphRef.current = morph
 
-    // ── Matter-driven graphics overlay ──
+    // ── Matter-driven graphics overlay — circles with bloom ──
     const matterGfx = new PIXI.Graphics()
     app.stage.addChild(matterGfx)
 
@@ -235,9 +236,19 @@ export default function PixiStage({
         const g = Math.round(169 - 80 * bunching)
         const b = Math.round(110 - 60 * bunching)
         const alpha = 0.5 + bunching * 0.4
-        matterGfx.beginFill((r << 16) | (g << 8) | b, alpha)
+        const color = (r << 16) | (g << 8) | b
         const rad = (body as any).circleRadius || 3
-        matterGfx.drawRect(bx - rad, by - rad * 0.6, rad * 2, rad * 1.2)
+
+        // Outer bloom
+        if (bunching > 0.3) {
+          matterGfx.beginFill(color, alpha * 0.12)
+          matterGfx.drawCircle(bx, by, rad * 2.5)
+          matterGfx.endFill()
+        }
+
+        // Main circle body
+        matterGfx.beginFill(color, alpha)
+        matterGfx.drawCircle(bx, by, rad)
         matterGfx.endFill()
       }
 

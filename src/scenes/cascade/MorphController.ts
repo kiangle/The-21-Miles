@@ -9,7 +9,7 @@ import type { LensId } from '../../state/machine/worldContext'
 /**
  * MorphController — transitions between visual species + propagates parameters.
  *
- * Pressure and perspective flow to ALL renderers so every tray control
+ * WorldVisualState flows to ALL renderers so every tray control
  * creates visible changes in the mounted world.
  */
 
@@ -21,12 +21,30 @@ export interface MorphRenderers {
   margins: MarginRenderer
 }
 
+/** Full visual state pushed to every renderer each frame. */
+export interface WorldVisualState {
+  pressure: number        // 0–1.5, time × future combined
+  constricted: boolean    // chokepoint blocked
+  supplyLevel: number     // 0–1, medicine shelf
+  erosion: number         // 0–1, margin erosion
+  perspective: 'nurse' | 'driver' | null
+  activeLens: LensId
+}
+
 const LENS_ORDER: LensId[] = ['shipping', 'freight', 'medicine', 'household']
 
 export class MorphController {
   private renderers: MorphRenderers
   private currentLens: LensId = 'shipping'
   private transitioning = false
+  private state: WorldVisualState = {
+    pressure: 0.5,
+    constricted: false,
+    supplyLevel: 1,
+    erosion: 0,
+    perspective: null,
+    activeLens: 'shipping',
+  }
 
   constructor(renderers: MorphRenderers) {
     this.renderers = renderers
@@ -37,14 +55,21 @@ export class MorphController {
   }
 
   /**
+   * Push full visual state to all renderers.
+   * Called by PixiStage when any tray control changes.
+   */
+  setVisualState(partial: Partial<WorldVisualState>) {
+    Object.assign(this.state, partial)
+    this.propagate()
+  }
+
+  /**
    * Propagate pressure to all renderers.
    * Timeline + future combine into this single value.
    */
   setPressure(pressure: number) {
-    this.renderers.flowBands.setPressure(pressure)
-    this.renderers.congestion.setPressure(pressure)
-    this.renderers.pulses.setPressure(pressure)
-    this.renderers.margins.setPressure(pressure)
+    this.state.pressure = pressure
+    this.propagate()
   }
 
   /**
@@ -52,10 +77,21 @@ export class MorphController {
    * "See through..." changes visual emphasis per role.
    */
   setPerspective(role: 'nurse' | 'driver' | null) {
-    this.renderers.flowBands.setPerspective(role)
-    this.renderers.congestion.setPerspective(role)
-    this.renderers.pulses.setPerspective(role)
-    this.renderers.margins.setPerspective(role)
+    this.state.perspective = role
+    this.propagate()
+  }
+
+  private propagate() {
+    const { pressure, perspective } = this.state
+    this.renderers.flowBands.setPressure(pressure)
+    this.renderers.congestion.setPressure(pressure)
+    this.renderers.pulses.setPressure(pressure)
+    this.renderers.margins.setPressure(pressure)
+
+    this.renderers.flowBands.setPerspective(perspective)
+    this.renderers.congestion.setPerspective(perspective)
+    this.renderers.pulses.setPerspective(perspective)
+    this.renderers.margins.setPerspective(perspective)
   }
 
   morphTo(targetLens: LensId, duration = 1.5): Promise<void> {
@@ -66,6 +102,7 @@ export class MorphController {
     this.transitioning = true
     const from = this.currentLens
     this.currentLens = targetLens
+    this.state.activeLens = targetLens
 
     return new Promise(resolve => {
       const fadeOutTarget = this.getRendererForLens(from)
@@ -104,6 +141,7 @@ export class MorphController {
     this.renderers.pulses.setVisible(lens === 'medicine')
     this.renderers.margins.setVisible(lens === 'household')
     this.currentLens = lens
+    this.state.activeLens = lens
   }
 
   private getRendererForLens(lens: LensId) {
