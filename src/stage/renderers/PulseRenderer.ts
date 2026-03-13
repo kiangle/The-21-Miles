@@ -340,6 +340,7 @@ export class PulseRenderer {
   }
 
   setVisible(visible: boolean) { this.container.visible = visible }
+  setAlpha(alpha: number) { this.container.alpha = alpha }
 
   clear() {
     for (const mb of this.bodies) Matter.Composite.remove(this.engine.world, mb.body)

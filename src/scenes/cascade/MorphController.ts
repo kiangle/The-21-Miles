@@ -11,6 +11,11 @@ import type { LensId } from '../../state/machine/worldContext'
  *
  * WorldVisualState flows to ALL renderers so every tray control
  * creates visible changes in the mounted world.
+ *
+ * GSAP cross-fade: outgoing lens fades to ghost weight,
+ * incoming lens scales up from ghost weight to 1.0.
+ * All lenses stay visible at their dominance weights —
+ * no hard on/off switching.
  */
 
 export interface MorphRenderers {
@@ -33,10 +38,19 @@ export interface WorldVisualState {
 
 const LENS_ORDER: LensId[] = ['shipping', 'freight', 'medicine', 'household']
 
+/** Current alpha state for GSAP tweening */
+interface LensAlphas {
+  shipping: number
+  freight: number
+  medicine: number
+  household: number
+}
+
 export class MorphController {
   private renderers: MorphRenderers
   private currentLens: LensId = 'shipping'
   private transitioning = false
+  private activeTween: gsap.core.Timeline | null = null
   private state: WorldVisualState = {
     pressure: 0.5,
     constricted: false,
@@ -44,6 +58,14 @@ export class MorphController {
     erosion: 0,
     perspective: null,
     activeLens: 'shipping',
+  }
+
+  /** Live alpha values — GSAP tweens this object, we apply each frame */
+  private alphas: LensAlphas = {
+    shipping: 1.0,
+    freight: 0.1,
+    medicine: 0.08,
+    household: 0.06,
   }
 
   constructor(renderers: MorphRenderers) {
@@ -94,35 +116,80 @@ export class MorphController {
     this.renderers.margins.setPerspective(perspective)
   }
 
-  morphTo(targetLens: LensId, duration = 1.5): Promise<void> {
-    if (this.transitioning || targetLens === this.currentLens) {
+  /**
+   * Apply current alpha values to renderer containers.
+   * Called from the Pixi ticker so transitions are smooth.
+   */
+  applyAlphas() {
+    this.renderers.flowBands.setAlpha(this.alphas.shipping)
+    this.renderers.congestion.setAlpha(this.alphas.freight)
+    this.renderers.pulses.setAlpha(this.alphas.medicine)
+    this.renderers.margins.setAlpha(this.alphas.household)
+
+    // Filaments visible during medicine + freight lenses
+    const filAlpha = Math.max(this.alphas.medicine, this.alphas.freight) * 0.5
+    this.renderers.filaments.setAlpha(filAlpha)
+  }
+
+  /**
+   * GSAP-animated cross-fade between lenses.
+   * Outgoing lens fades to its ghost weight.
+   * Incoming lens fades up to 1.0.
+   * All other lenses tween to their dominance weights.
+   */
+  morphTo(targetLens: LensId, duration = 1.2): Promise<void> {
+    if (targetLens === this.currentLens && !this.transitioning) {
       return Promise.resolve()
     }
 
+    // Kill any running transition
+    if (this.activeTween) {
+      this.activeTween.kill()
+      this.activeTween = null
+    }
+
     this.transitioning = true
-    const from = this.currentLens
     this.currentLens = targetLens
     this.state.activeLens = targetLens
 
-    return new Promise(resolve => {
-      const fadeOutTarget = this.getRendererForLens(from)
-      const fadeInTarget = this.getRendererForLens(targetLens)
+    const targetAlphas = MorphController.LENS_WEIGHTS[targetLens]
 
+    // Make sure all renderers are visible (alpha controls opacity, not visibility)
+    this.renderers.flowBands.setVisible(true)
+    this.renderers.congestion.setVisible(true)
+    this.renderers.pulses.setVisible(true)
+    this.renderers.margins.setVisible(true)
+    this.renderers.filaments.setVisible(true)
+
+    return new Promise(resolve => {
       const tl = gsap.timeline({
+        onUpdate: () => this.applyAlphas(),
         onComplete: () => {
           this.transitioning = false
+          this.activeTween = null
+          // Hide renderers with very low alpha to save draw calls
+          this.renderers.flowBands.setVisible(this.alphas.shipping > 0.04)
+          this.renderers.congestion.setVisible(this.alphas.freight > 0.04)
+          this.renderers.pulses.setVisible(this.alphas.medicine > 0.04)
+          this.renderers.margins.setVisible(this.alphas.household > 0.04)
+          this.renderers.filaments.setVisible(
+            targetLens === 'medicine' || targetLens === 'freight',
+          )
           resolve()
         },
       })
 
-      tl.to({}, {
-        duration: duration * 0.4,
-        onComplete: () => fadeOutTarget.setVisible(false),
+      // Tween all alphas to their target dominance weights
+      tl.to(this.alphas, {
+        shipping: targetAlphas.shipping,
+        freight: targetAlphas.freight,
+        medicine: targetAlphas.medicine,
+        household: targetAlphas.household,
+        duration,
+        ease: 'power2.inOut',
       })
 
-      tl.call(() => fadeInTarget.setVisible(true))
-
-      tl.to({}, { duration: duration * 0.6 })
+      this.activeTween = tl
     })
   }
 
@@ -145,24 +212,24 @@ export class MorphController {
     household:{ shipping: 0.06, freight: 0.08, medicine: 0.10, household: 1.0 },
   }
 
+  /**
+   * Instant snap to lens weights (no animation).
+   * Used for initial setup.
+   */
   showOnly(lens: LensId) {
     const weights = MorphController.LENS_WEIGHTS[lens]
+    this.alphas.shipping = weights.shipping
+    this.alphas.freight = weights.freight
+    this.alphas.medicine = weights.medicine
+    this.alphas.household = weights.household
 
-    // FlowBands (shipping) — visible if weight > threshold
-    this.renderers.flowBands.setVisible(weights.shipping > 0.05)
-
-    // Congestion (freight)
-    this.renderers.congestion.setVisible(weights.freight > 0.05)
-
-    // Filaments (import stress) — context for medicine + freight
+    this.renderers.flowBands.setVisible(weights.shipping > 0.04)
+    this.renderers.congestion.setVisible(weights.freight > 0.04)
     this.renderers.filaments.setVisible(lens === 'medicine' || lens === 'freight')
+    this.renderers.pulses.setVisible(weights.medicine > 0.04)
+    this.renderers.margins.setVisible(weights.household > 0.04)
 
-    // Pulses (medicine)
-    this.renderers.pulses.setVisible(weights.medicine > 0.05)
-
-    // Margins (household)
-    this.renderers.margins.setVisible(weights.household > 0.05)
-
+    this.applyAlphas()
     this.currentLens = lens
     this.state.activeLens = lens
   }

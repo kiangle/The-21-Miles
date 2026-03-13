@@ -73,6 +73,10 @@ export class FilamentRenderer {
     this.container.visible = visible
   }
 
+  setAlpha(alpha: number) {
+    this.container.alpha = alpha
+  }
+
   clear() {
     this.filaments.forEach(f => f.line.destroy())
     this.filaments = []

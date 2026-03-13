@@ -162,27 +162,56 @@ export default function Shell({
   }, [scene, disposeGlobe])
 
   // ── ScrollTrigger for story progression ──
+  const lastScrollZoneRef = useRef<string>('')
+
   useEffect(() => {
     if (!stageVisible || !storyStageRef.current) return
 
     const st = ScrollTrigger.create({
       trigger: storyStageRef.current,
       start: 'top top',
-      end: '+=2000',
+      end: '+=3000',
       pin: true,
-      scrub: true,
+      scrub: 0.8,
       onUpdate: (self) => {
         const p = self.progress
-        // Drive visual transitions through scroll
-        if (p < 0.33) {
-          // Detour phase — shipping visible
-        } else if (p < 0.66) {
-          // Medicine phase
-          if (morphControllerActive()) {
-            // Lens shift handled by field console
-          }
+        let zone = ''
+        let targetLens: LensId = 'shipping'
+        let targetTime: TimeId = 'day1'
+
+        if (p < 0.2) {
+          // 0–20%: Baseline — shipping visible, Day 1
+          zone = 'baseline'
+          targetLens = 'shipping'
+          targetTime = 'day1'
+        } else if (p < 0.4) {
+          // 20–40%: Rupture — chokepoint constricts, shift to freight
+          zone = 'rupture'
+          targetLens = 'freight'
+          targetTime = 'day3'
+        } else if (p < 0.6) {
+          // 40–60%: Detour — cape route visible, medicine path
+          zone = 'detour'
+          targetLens = 'medicine'
+          targetTime = 'week1'
+        } else if (p < 0.8) {
+          // 60–80%: Cascade — medicine → household, compression builds
+          zone = 'cascade'
+          targetLens = 'household'
+          targetTime = 'week1'
         } else {
-          // Household/compression phase
+          // 80–100%: Your month — full compression
+          zone = 'yourMonth'
+          targetLens = 'household'
+          targetTime = 'month1'
+        }
+
+        // Only fire scene transition once per zone crossing
+        if (zone !== lastScrollZoneRef.current) {
+          lastScrollZoneRef.current = zone
+          send({ type: 'ADVANCE_SCENE', scene: zone as SceneId })
+          send({ type: 'SET_LENS', lens: targetLens })
+          send({ type: 'SET_TIME', time: targetTime })
         }
       },
     })
@@ -193,11 +222,7 @@ export default function Shell({
       st.kill()
       scrollTriggerRef.current = null
     }
-  }, [stageVisible])
-
-  function morphControllerActive() {
-    return scene === 'cascade'
-  }
+  }, [stageVisible, send])
 
   // ── Role selection (driven by bootstrap roles) ──
   const handleSelectRole = useCallback((role: 'nurse' | 'driver') => {

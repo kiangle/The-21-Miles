@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useCallback } from 'react'
 import * as PIXI from 'pixi.js'
+import { NoiseFilter } from '@pixi/filter-noise'
+import { ColorMatrixFilter } from '@pixi/filter-color-matrix'
 import Matter from 'matter-js'
+import gsap from 'gsap'
 import { FlowBandRenderer } from '../renderers/FlowBandRenderer'
 import { CongestionRenderer } from '../renderers/CongestionRenderer'
 import { FilamentRenderer } from '../renderers/FilamentRenderer'
@@ -20,6 +23,9 @@ import type { LensId, SceneId, TimeId, FutureId } from '../../state/machine/worl
  *
  * Matter.js = physical behavior (queueing, bunching, bottleneck, competition).
  * Pixi = visual clarity (density bloom, trail, glow, color shift).
+ *
+ * Every toggle, every scrub, every tap produces IMMEDIATE, DRAMATIC,
+ * PHYSICAL change in the world.
  */
 
 interface PixiStageProps {
@@ -80,6 +86,14 @@ export default function PixiStage({
     margins: MarginRenderer
   } | null>(null)
   const engineRef = useRef<Matter.Engine | null>(null)
+  const pressureTweenRef = useRef<gsap.core.Tween | null>(null)
+  const pressureRef = useRef({ value: 0.2 })
+  const prevSceneRef = useRef<SceneId>('entry')
+  const atmosphereRef = useRef<{
+    noise: NoiseFilter
+    colorMatrix: ColorMatrixFilter
+    vignetteGfx: PIXI.Graphics
+  } | null>(null)
 
   const initPixi = useCallback(async () => {
     if (!containerRef.current || appRef.current) return
@@ -180,6 +194,18 @@ export default function PixiStage({
     morph.showOnly('shipping')
     morphRef.current = morph
 
+    // ── Issue #8: Atmospheric filters ──
+    const noiseFilter = new NoiseFilter(0.04)
+    const colorMatrix = new ColorMatrixFilter()
+    app.stage.filters = [noiseFilter, colorMatrix]
+
+    // Vignette overlay
+    const vignetteGfx = new PIXI.Graphics()
+    app.stage.addChild(vignetteGfx)
+    drawVignette(vignetteGfx, w, h, 0.3)
+
+    atmosphereRef.current = { noise: noiseFilter, colorMatrix, vignetteGfx }
+
     // ── Single ticker: engine ticks once, all renderers read body state ──
     app.ticker.add((delta) => {
       const dt = delta / 60
@@ -194,6 +220,14 @@ export default function PixiStage({
       pulses.update(dt)
       margins.update(dt)
       split.update()
+
+      // Apply morph controller alpha values each frame for smooth transitions
+      if (morphRef.current) {
+        morphRef.current.applyAlphas()
+      }
+
+      // Animate noise grain
+      noiseFilter.seed = Math.random()
     })
   }, [])
 
@@ -211,7 +245,7 @@ export default function PixiStage({
     }
   }, [initPixi])
 
-  // ── Lens morphing ──
+  // ── Issue #2: Lens morphing with GSAP cross-fade ──
   useEffect(() => {
     if (!morphRef.current) return
     const landedScenes = ['baseline', 'rupture', 'detour', 'cascade', 'yourMonth', 'whatNext', 'split']
@@ -220,18 +254,133 @@ export default function PixiStage({
     }
   }, [lens, scene])
 
-  // ── Pressure: time × future → visible world change ──
+  // ── Issue #4: Time scrubbing → GSAP-animated pressure transitions ──
   useEffect(() => {
-    if (!morphRef.current) return
-    const pressure = TIME_PRESSURE[time] * FUTURE_PRESSURE[future]
-    morphRef.current.setPressure(pressure)
+    if (!morphRef.current || !renderersRef.current) return
 
-    if (renderersRef.current) {
-      renderersRef.current.flowBands.setConstricted(
-        pressure > 0.3 && future !== 'closureEnds',
-      )
+    const targetPressure = TIME_PRESSURE[time] * FUTURE_PRESSURE[future]
+
+    // Kill any running pressure tween
+    if (pressureTweenRef.current) {
+      pressureTweenRef.current.kill()
+    }
+
+    // GSAP-animate pressure so Day1→Month1 transition is dramatic and visible
+    pressureTweenRef.current = gsap.to(pressureRef.current, {
+      value: targetPressure,
+      duration: 1.5,
+      ease: 'power2.inOut',
+      onUpdate: () => {
+        const p = pressureRef.current.value
+        morphRef.current?.setPressure(p)
+        renderersRef.current?.flowBands.setConstricted(
+          p > 0.3 && future !== 'closureEnds',
+        )
+      },
+    })
+
+    // Issue #8: Atmospheric shift with pressure
+    if (atmosphereRef.current) {
+      const atm = atmosphereRef.current
+      gsap.to(atm.noise, {
+        noise: 0.03 + targetPressure * 0.06,
+        duration: 1.5,
+        ease: 'power2.inOut',
+      })
+
+      // Red tint intensifies with pressure
+      const redShift = targetPressure * 0.15
+      atm.colorMatrix.reset()
+      if (redShift > 0.02) {
+        // Subtle warm shift toward stress
+        atm.colorMatrix.matrix[0] = 1 + redShift    // R
+        atm.colorMatrix.matrix[6] = 1 - redShift * 0.3 // G
+        atm.colorMatrix.matrix[12] = 1 - redShift * 0.5 // B
+      }
     }
   }, [time, future])
+
+  // ── Issue #6: Scene transition GSAP choreography ──
+  useEffect(() => {
+    if (!appRef.current || !renderersRef.current || !morphRef.current) return
+    const prev = prevSceneRef.current
+    prevSceneRef.current = scene
+
+    const stage = appRef.current.stage
+
+    switch (scene) {
+      case 'rupture': {
+        // Shake effect — screen tremor
+        const original = { x: stage.position.x, y: stage.position.y }
+        gsap.timeline()
+          .to(stage.position, { x: original.x + 6, y: original.y - 3, duration: 0.05 })
+          .to(stage.position, { x: original.x - 5, y: original.y + 4, duration: 0.05 })
+          .to(stage.position, { x: original.x + 3, y: original.y - 2, duration: 0.05 })
+          .to(stage.position, { x: original.x - 4, y: original.y + 3, duration: 0.05 })
+          .to(stage.position, { x: original.x + 2, y: original.y - 1, duration: 0.05 })
+          .to(stage.position, { x: original.x, y: original.y, duration: 0.15, ease: 'power2.out' })
+
+        // Flash white then fade
+        if (atmosphereRef.current) {
+          const cm = atmosphereRef.current.colorMatrix
+          gsap.fromTo(
+            { brightness: 2 },
+            { brightness: 2 },
+            {
+              brightness: 1,
+              duration: 0.6,
+              ease: 'power3.out',
+              onUpdate: function () {
+                cm.reset()
+                cm.brightness(this.targets()[0].brightness, false)
+              },
+            },
+          )
+        }
+
+        // Constrict chokepoint
+        renderersRef.current.flowBands.setConstricted(true)
+        break
+      }
+
+      case 'detour': {
+        // Fade in from dark
+        gsap.fromTo(stage, { alpha: 0.6 }, { alpha: 1, duration: 1.2, ease: 'power2.out' })
+        break
+      }
+
+      case 'cascade': {
+        // Auto-morph through lenses: shipping → freight → medicine → household
+        if (prev !== 'cascade') {
+          morphRef.current.autoMorph(1.5)
+        }
+        break
+      }
+
+      case 'yourMonth': {
+        // Darken atmosphere — walls closing feeling
+        if (atmosphereRef.current) {
+          const vigGfx = atmosphereRef.current.vignetteGfx
+          const w = appRef.current!.screen.width
+          const h = appRef.current!.screen.height
+          gsap.to({ intensity: 0.3 }, {
+            intensity: 0.7,
+            duration: 2,
+            ease: 'power2.in',
+            onUpdate: function () {
+              drawVignette(vigGfx, w, h, this.targets()[0].intensity)
+            },
+          })
+        }
+        break
+      }
+
+      case 'split': {
+        // Split transition handled by compareMode effect
+        break
+      }
+    }
+  }, [scene])
 
   // ── Perspective ──
   useEffect(() => {
@@ -242,10 +391,32 @@ export default function PixiStage({
   useEffect(() => { renderersRef.current?.pulses.setSupplyLevel(supplyLevel) }, [supplyLevel])
   useEffect(() => { renderersRef.current?.margins.setErosion(erosionPct) }, [erosionPct])
 
+  // ── Issue #5: Split world for what-if futures ──
   useEffect(() => {
     if (splitRef.current) {
-      splitRef.current.setVisible(compareMode)
-      splitRef.current.setSplit(compareMode ? 1 : 0)
+      if (compareMode) {
+        splitRef.current.setVisible(true)
+        gsap.to({ split: 0 }, {
+          split: 1,
+          duration: 1.2,
+          ease: 'power2.inOut',
+          onUpdate: function () {
+            splitRef.current?.setSplit(this.targets()[0].split)
+          },
+        })
+      } else {
+        gsap.to({ split: 1 }, {
+          split: 0,
+          duration: 0.8,
+          ease: 'power2.inOut',
+          onUpdate: function () {
+            splitRef.current?.setSplit(this.targets()[0].split)
+          },
+          onComplete: () => {
+            splitRef.current?.setVisible(false)
+          },
+        })
+      }
     }
   }, [compareMode])
 
@@ -262,4 +433,21 @@ export default function PixiStage({
       opacity: visible ? 1 : 0, transition: 'opacity 1s ease',
     }} />
   )
+}
+
+/** Draw a radial vignette darkening the edges */
+function drawVignette(gfx: PIXI.Graphics, w: number, h: number, intensity: number) {
+  gfx.clear()
+  const cx = w / 2
+  const cy = h / 2
+  const radius = Math.max(w, h) * 0.7
+  const steps = 8
+  for (let i = steps; i >= 0; i--) {
+    const t = i / steps
+    const r = radius * (0.5 + t * 0.5)
+    const alpha = intensity * t * t * 0.4
+    gfx.beginFill(0x000000, alpha)
+    gfx.drawEllipse(cx, cy, r * (w / Math.max(w, h)), r * (h / Math.max(w, h)))
+    gfx.endFill()
+  }
 }
