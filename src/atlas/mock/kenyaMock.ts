@@ -114,7 +114,7 @@ const PROFILES = {
 //  CASCADE GRAPH — every node with UI + path_labels
 // ═══════════════════════════════════════════════
 
-const NODES = {
+const NODES: Record<string, any> = {
   // ── ENTRY ──────────────────────────────────
   "scenario:shock_strait_closure": {
     id: "scenario:shock_strait_closure",
@@ -574,10 +574,10 @@ const CHOKEPOINTS = [
 
 const CATS = { fuel: "fuel", heating: "heating", food: "food", transport: "transport" };
 
-function computeHouseholdImpact(profile) {
+function computeHouseholdImpact(profile: any) {
   const pre = profile.household_basket.preCrisis;
   const mult = profile.household_basket.crisisMultipliers;
-  const impacts = {};
+  const impacts: Record<string, any> = {};
   let lo = 0, ba = 0, hi = 0;
   for (const [k] of Object.entries(CATS)) {
     const a = pre[k].amount, m = mult[k];
@@ -606,7 +606,7 @@ function computeHouseholdImpact(profile) {
 //  REQUEST HANDLER — the mock Atlas server
 // ═══════════════════════════════════════════════
 
-export function handleRequest(method, path, body) {
+export function handleRequest(method: string, path: string, body: any) {
   return new Promise(resolve => setTimeout(() => {
 
     // GET /explorer-bootstrap/{world_id}
@@ -621,7 +621,7 @@ export function handleRequest(method, path, body) {
           tagline: p.tagline, baseline_income: p.baseline_income, unique_exposure: p.unique_exposure,
         })),
         entry_shock: { id: entry.id, label: entry.label },
-        first_cascade_cards: entry.out.map(e => ({
+        first_cascade_cards: entry.out.map((e: any) => ({
           id: e.to, label: NODES[e.to]?.label || e.to, node_type: NODES[e.to]?.node_type || "unknown",
           edge_type: e.edge, path_label: e.path_label, strength: e.s, lag: e.lag,
           description: NODES[e.to]?.ui?.line || "",
@@ -644,7 +644,7 @@ export function handleRequest(method, path, body) {
     else if (path === '/cascade-path') {
       const node = NODES[body?.from_node_id];
       if (!node) { resolve({ from_node: { id: body?.from_node_id, label: "?", node_type: "?" }, connections: [], cross_domain_edges: [], what_if_scenarios: [] }); return; }
-      const conns = (node.out || []).map(e => ({
+      const conns = (node.out || []).map((e: any) => ({
         edge_type: e.edge, path_label: e.path_label, strength: e.s, lag: e.lag, condition: e.cond || null,
         target: { id: e.to, label: NODES[e.to]?.label || e.to, node_type: NODES[e.to]?.node_type || "unknown" },
         target_ui: NODES[e.to]?.ui || null,
@@ -664,8 +664,8 @@ export function handleRequest(method, path, body) {
       resolve({
         from_node: { id: node.id, label: node.label, node_type: node.node_type, ui: node.ui },
         connections: conns,
-        cross_domain_edges: conns.filter(c => c.condition),
-        what_if_scenarios: nodeWhatIfs.map(w => ({ id: w.id, label: w.label, hint: w.hint, direction: w.direction, probability: w.probability })),
+        cross_domain_edges: conns.filter((c: any) => c.condition),
+        what_if_scenarios: nodeWhatIfs.map((w: any) => ({ id: w.id, label: w.label, hint: w.hint, direction: w.direction, probability: w.probability })),
       });
     }
 

@@ -1,0 +1,39 @@
+{
+  "name": "21-miles",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.170.0",
+    "@react-three/fiber": "^8.17.0",
+    "gsap": "^3.12.5",
+    "xstate": "^5.18.0",
+    "@xstate/react": "^4.1.0",
+    "pixi.js": "^7.4.0",
+    "matter-js": "^0.20.0",
+    "maplibre-gl": "^4.7.0",
+    "@deck.gl/core": "^9.0.0",
+    "@deck.gl/layers": "^9.0.0",
+    "@deck.gl/mapbox": "^9.0.0",
+    "d3": "^7.9.0",
+    "inkjs": "^2.3.0",
+    "tone": "^15.0.4"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.170.0",
+    "@types/matter-js": "^0.19.7",
+    "@types/d3": "^7.4.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.0"
+  }
+}
