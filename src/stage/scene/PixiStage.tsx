@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react'
 import * as PIXI from 'pixi.js'
+import Matter from 'matter-js'
 import { FlowBandRenderer } from '../renderers/FlowBandRenderer'
 import { CongestionRenderer } from '../renderers/CongestionRenderer'
 import { FilamentRenderer } from '../renderers/FilamentRenderer'
@@ -12,7 +13,8 @@ import type { LensId, SceneId } from '../../state/machine/worldContext'
 /**
  * PixiStage — the 2D living world.
  *
- * All cascade visuals render here. The stage is the world.
+ * All cascade visuals render here. Matter.js drives chokepoint
+ * congestion bunching and pressure physics. Pixi renders the result.
  * Layered on top of MapLibre after the fly-to transition.
  */
 
@@ -25,7 +27,6 @@ interface PixiStageProps {
   visible: boolean
 }
 
-// Screen-space positions for Kenya map features
 const KENYA_POSITIONS = {
   hormuz: { x: 750, y: 180 },
   babElMandeb: { x: 600, y: 280 },
@@ -48,6 +49,7 @@ export default function PixiStage({ scene, lens, compareMode, supplyLevel, erosi
     pulses: PulseRenderer
     margins: MarginRenderer
   } | null>(null)
+  const matterRef = useRef<{ engine: Matter.Engine; bodies: Matter.Body[] } | null>(null)
 
   const initPixi = useCallback(async () => {
     if (!containerRef.current || appRef.current) return
@@ -66,7 +68,32 @@ export default function PixiStage({ scene, lens, compareMode, supplyLevel, erosi
     const w = app.screen.width
     const h = app.screen.height
 
-    // Create renderer layers
+    // ── Matter.js physics — chokepoint bunching ──
+    const engine = Matter.Engine.create({ gravity: { x: 0, y: 0 }, enableSleeping: true })
+
+    const hormuzX = KENYA_POSITIONS.hormuz.x
+    const hormuzY = KENYA_POSITIONS.hormuz.y
+
+    // Chokepoint walls
+    const wallTop = Matter.Bodies.rectangle(hormuzX, hormuzY - 35, 80, 10, { isStatic: true })
+    const wallBot = Matter.Bodies.rectangle(hormuzX, hormuzY + 35, 80, 10, { isStatic: true })
+    Matter.Composite.add(engine.world, [wallTop, wallBot])
+
+    // Vessel bodies
+    const matterBodies: Matter.Body[] = []
+    for (let i = 0; i < 40; i++) {
+      const body = Matter.Bodies.circle(
+        hormuzX + (Math.random() - 0.5) * 60,
+        hormuzY + (Math.random() - 0.5) * 50,
+        2 + Math.random() * 2,
+        { density: 0.0005, frictionAir: 0.04, restitution: 0.3, label: 'vessel' },
+      )
+      Matter.Composite.add(engine.world, body)
+      matterBodies.push(body)
+    }
+    matterRef.current = { engine, bodies: matterBodies }
+
+    // ── Pixi renderers ──
     const flowBands = new FlowBandRenderer(app.stage)
     const congestion = new CongestionRenderer(app.stage)
     const filaments = new FilamentRenderer(app.stage)
@@ -77,65 +104,63 @@ export default function PixiStage({ scene, lens, compareMode, supplyLevel, erosi
     renderersRef.current = { flowBands, congestion, filaments, pulses, margins }
     splitRef.current = split
 
-    // Initialize flow bands — shipping routes as screen paths
-    const hormuzToMombasa = [
-      KENYA_POSITIONS.hormuz,
-      { x: 700, y: 220 },
-      KENYA_POSITIONS.babElMandeb,
-      { x: 560, y: 330 },
-      KENYA_POSITIONS.mombasa,
-    ]
-    const capeRoute = [
-      KENYA_POSITIONS.capeTown,
-      { x: 380, y: 580 },
-      { x: 420, y: 500 },
-      { x: 480, y: 440 },
-      KENYA_POSITIONS.mombasa,
-    ]
-    const suezRoute = [
-      KENYA_POSITIONS.suez,
-      KENYA_POSITIONS.babElMandeb,
-    ]
-    const mombasaToNairobi = [
-      KENYA_POSITIONS.mombasa,
-      { x: 500, y: 385 },
-      KENYA_POSITIONS.nairobi,
-    ]
+    // Flow bands
+    flowBands.addBand([KENYA_POSITIONS.hormuz, { x: 700, y: 220 }, KENYA_POSITIONS.babElMandeb, { x: 560, y: 330 }, KENYA_POSITIONS.mombasa], 30, '#88CCFF', 3)
+    flowBands.addBand([KENYA_POSITIONS.capeTown, { x: 380, y: 580 }, { x: 420, y: 500 }, { x: 480, y: 440 }, KENYA_POSITIONS.mombasa], 15, '#D4763C', 2)
+    flowBands.addBand([KENYA_POSITIONS.suez, KENYA_POSITIONS.babElMandeb], 20, '#5BA3CF', 2)
+    flowBands.addBand([KENYA_POSITIONS.mombasa, { x: 500, y: 385 }, KENYA_POSITIONS.nairobi], 12, '#C8A96E', 2)
 
-    flowBands.addBand(hormuzToMombasa, 30, '#88CCFF', 3)
-    flowBands.addBand(capeRoute, 15, '#D4763C', 2)
-    flowBands.addBand(suezRoute, 20, '#5BA3CF', 2)
-    flowBands.addBand(mombasaToNairobi, 12, '#C8A96E', 2)
-
-    // Initialize congestion — at Mombasa port
     congestion.setAttractor(KENYA_POSITIONS.mombasa)
     for (let i = 0; i < 30; i++) {
-      congestion.spawn(
-        KENYA_POSITIONS.mombasa.x + (Math.random() - 0.5) * 100,
-        KENYA_POSITIONS.mombasa.y + (Math.random() - 0.5) * 80,
-      )
+      congestion.spawn(KENYA_POSITIONS.mombasa.x + (Math.random() - 0.5) * 100, KENYA_POSITIONS.mombasa.y + (Math.random() - 0.5) * 80)
     }
 
-    // Initialize filaments — inland supply lines
     filaments.addFilament(KENYA_POSITIONS.mombasa, KENYA_POSITIONS.nairobi, 10)
     filaments.addFilament(KENYA_POSITIONS.mombasa, KENYA_POSITIONS.hospital, 8)
 
-    // Initialize pulses — hospital and supply points
     pulses.addPulsePoint(KENYA_POSITIONS.hospital.x, KENYA_POSITIONS.hospital.y)
     pulses.addPulsePoint(KENYA_POSITIONS.nairobi.x + 20, KENYA_POSITIONS.nairobi.y - 10)
 
-    // Initialize margin bands
     margins.addBand(KENYA_POSITIONS.nairobi, { x: KENYA_POSITIONS.nairobi.x + 60, y: KENYA_POSITIONS.nairobi.y + 40 })
     margins.addBand(KENYA_POSITIONS.hospital, { x: KENYA_POSITIONS.hospital.x - 40, y: KENYA_POSITIONS.hospital.y + 30 })
 
-    // Morph controller
     const morph = new MorphController({ flowBands, congestion, filaments, pulses, margins })
     morph.showOnly('shipping')
     morphRef.current = morph
 
-    // Animation loop
+    // Matter-driven congestion graphics overlay
+    const matterGfx = new PIXI.Graphics()
+    app.stage.addChild(matterGfx)
+
     app.ticker.add((delta) => {
       const dt = delta / 60
+
+      // Step Matter physics
+      Matter.Engine.update(engine, dt * 1000)
+
+      // Attractor force — bunching at chokepoint
+      for (const body of matterBodies) {
+        const dx = hormuzX - body.position.x
+        const dy = hormuzY - body.position.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist > 5) {
+          const strength = 0.000002 * dist
+          Matter.Body.applyForce(body, body.position, { x: (dx / dist) * strength, y: (dy / dist) * strength })
+        }
+      }
+
+      // Render Matter bodies
+      matterGfx.clear()
+      for (const body of matterBodies) {
+        const bunching = Math.min(1, 30 / Math.max(1, Math.sqrt((body.position.x - hormuzX) ** 2 + (body.position.y - hormuzY) ** 2)))
+        const r = Math.round(200 + 55 * bunching)
+        const g = Math.round(169 - 80 * bunching)
+        const b = Math.round(110 - 60 * bunching)
+        matterGfx.beginFill((r << 16) | (g << 8) | b, 0.6 + bunching * 0.3)
+        matterGfx.drawCircle(body.position.x, body.position.y, (body as any).circleRadius || 3)
+        matterGfx.endFill()
+      }
+
       flowBands.update(dt)
       congestion.update(dt)
       filaments.update(dt)
@@ -152,66 +177,39 @@ export default function PixiStage({ scene, lens, compareMode, supplyLevel, erosi
         appRef.current.destroy(true, { children: true })
         appRef.current = null
       }
+      if (matterRef.current) {
+        Matter.Engine.clear(matterRef.current.engine)
+        matterRef.current = null
+      }
     }
   }, [initPixi])
 
-  // React to lens changes
   useEffect(() => {
     if (morphRef.current && scene === 'cascade') {
       morphRef.current.morphTo(lens)
     } else if (morphRef.current) {
-      // For non-cascade scenes, show appropriate renderer
-      if (scene === 'baseline' || scene === 'rupture' || scene === 'detour') {
-        morphRef.current.showOnly('shipping')
-      } else if (scene === 'yourMonth') {
-        morphRef.current.showOnly('household')
-      }
+      if (['baseline', 'rupture', 'detour'].includes(scene)) morphRef.current.showOnly('shipping')
+      else if (scene === 'yourMonth') morphRef.current.showOnly('household')
     }
   }, [lens, scene])
 
-  // React to supply level
-  useEffect(() => {
-    if (renderersRef.current) {
-      renderersRef.current.pulses.setSupplyLevel(supplyLevel)
-    }
-  }, [supplyLevel])
-
-  // React to erosion
-  useEffect(() => {
-    if (renderersRef.current) {
-      renderersRef.current.margins.setErosion(erosionPct)
-    }
-  }, [erosionPct])
-
-  // React to compare mode
+  useEffect(() => { renderersRef.current?.pulses.setSupplyLevel(supplyLevel) }, [supplyLevel])
+  useEffect(() => { renderersRef.current?.margins.setErosion(erosionPct) }, [erosionPct])
   useEffect(() => {
     if (splitRef.current) {
       splitRef.current.setVisible(compareMode)
       splitRef.current.setSplit(compareMode ? 1 : 0)
     }
   }, [compareMode])
-
-  // React to rupture
   useEffect(() => {
-    if (scene === 'rupture' && renderersRef.current) {
-      renderersRef.current.flowBands.setConstricted(true)
-    }
+    if (scene === 'rupture' && renderersRef.current) renderersRef.current.flowBands.setConstricted(true)
   }, [scene])
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        zIndex: 3,
-        pointerEvents: 'none',
-        opacity: visible ? 1 : 0,
-        transition: 'opacity 1s ease',
-      }}
-    />
+    <div ref={containerRef} style={{
+      position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+      zIndex: 3, pointerEvents: 'none',
+      opacity: visible ? 1 : 0, transition: 'opacity 1s ease',
+    }} />
   )
 }

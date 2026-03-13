@@ -1,0 +1,8 @@
+[
+  { "id": "kenya", "label": "Kenya", "flag": "🇰🇪", "lat": -1.29, "lng": 36.82, "context": "85% of petroleum imported through Gulf routes" },
+  { "id": "japan", "label": "Japan", "flag": "🇯🇵", "lat": 36.20, "lng": 138.25, "context": "87% of oil imports transit Hormuz" },
+  { "id": "germany", "label": "Germany", "flag": "🇩🇪", "lat": 51.16, "lng": 10.45, "context": "Replaced Russian gas with Qatari LNG transiting Hormuz" },
+  { "id": "india", "label": "India", "flag": "🇮🇳", "lat": 20.59, "lng": 78.96, "context": "60% of oil imports transit Hormuz, world's largest generic pharma producer" },
+  { "id": "usa", "label": "USA", "flag": "🇺🇸", "lat": 37.09, "lng": -95.71, "context": "Global reserve currency — SPR at 392M barrels" },
+  { "id": "uk", "label": "UK", "flag": "🇬🇧", "lat": 55.38, "lng": -3.44, "context": "Lloyd's of London — maritime insurance capital" }
+]

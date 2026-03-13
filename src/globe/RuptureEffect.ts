@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { GLOBE_RADIUS, COLORS } from '../app/config/constants'
 
 /**
- * Red pulse emanating from Hormuz when the strait closes.
- * An expanding ring on the globe surface + a point glow.
+ * Red pulse at Hormuz when the strait closes.
+ * Visible from opening camera — large glow + expanding rings + sprite halo.
  */
 
 function latLngToVec3(lat: number, lng: number, radius: number): THREE.Vector3 {
@@ -26,75 +26,116 @@ export interface RuptureEffectSystem {
 
 export function createRuptureEffect(): RuptureEffectSystem {
   const group = new THREE.Group()
-  const hormuzPos = latLngToVec3(26.5, 56.3, GLOBE_RADIUS + 0.03)
+  const hormuzPos = latLngToVec3(26.5, 56.3, GLOBE_RADIUS + 0.05)
+  const hormuzNormal = hormuzPos.clone().normalize()
 
-  // Glow sphere at Hormuz
-  const glowGeo = new THREE.SphereGeometry(0.08, 16, 16)
+  // Core glow sphere — larger than before
+  const glowGeo = new THREE.SphereGeometry(0.15, 16, 16)
   const glowMat = new THREE.MeshBasicMaterial({
     color: COLORS.rupture,
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
+    depthWrite: false,
   })
   const glow = new THREE.Mesh(glowGeo, glowMat)
   glow.position.copy(hormuzPos)
   group.add(glow)
 
-  // Expanding ring — implemented as a torus
-  const ringGeo = new THREE.TorusGeometry(0.01, 0.005, 8, 64)
+  // Halo sprite for bloom-like aura
+  const spriteMat = new THREE.SpriteMaterial({
+    color: new THREE.Color('#ff6633'),
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  })
+  const haloSprite = new THREE.Sprite(spriteMat)
+  haloSprite.position.copy(hormuzPos)
+  haloSprite.scale.setScalar(0.5)
+  group.add(haloSprite)
+
+  // Expanding ring 1
+  const ringGeo = new THREE.TorusGeometry(0.02, 0.008, 8, 64)
   const ringMat = new THREE.MeshBasicMaterial({
     color: COLORS.rupture,
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
+    depthWrite: false,
   })
-  const ring = new THREE.Mesh(ringGeo, ringMat)
-  ring.position.copy(hormuzPos)
-  // Orient ring to be tangent to the globe at Hormuz
-  ring.lookAt(new THREE.Vector3(0, 0, 0))
-  group.add(ring)
+  const ring1 = new THREE.Mesh(ringGeo, ringMat)
+  ring1.position.copy(hormuzPos)
+  ring1.lookAt(new THREE.Vector3(0, 0, 0))
+  group.add(ring1)
+
+  // Expanding ring 2 (delayed)
+  const ringMat2 = ringMat.clone()
+  const ring2 = new THREE.Mesh(ringGeo, ringMat2)
+  ring2.position.copy(hormuzPos)
+  ring2.lookAt(new THREE.Vector3(0, 0, 0))
+  group.add(ring2)
 
   let active = false
   let elapsed = 0
-  const PULSE_DURATION = 3 // seconds
 
   function trigger() {
     active = true
     elapsed = 0
-    glowMat.opacity = 0
-    ringMat.opacity = 0
   }
 
   function update(delta: number) {
     if (!active) return
 
     elapsed += delta
-    const t = elapsed / PULSE_DURATION
 
-    if (t > 1) {
-      // Keep glow pulsing after initial pulse
-      const pulse = 0.5 + 0.3 * Math.sin(elapsed * 3)
+    // Phase 1: Initial burst (0-3s)
+    if (elapsed < 3) {
+      const t = elapsed / 3
+
+      // Glow ramps up fast and grows
+      glowMat.opacity = Math.min(t * 4, 1) * 0.9
+      glow.scale.setScalar(1 + t * 1.5)
+
+      // Halo grows
+      spriteMat.opacity = Math.min(t * 3, 0.7)
+      haloSprite.scale.setScalar(0.5 + t * 2)
+
+      // Ring 1 expands
+      const ringScale = 1 + t * 100
+      ring1.scale.setScalar(ringScale)
+      ringMat.opacity = Math.max(0.8 - t * 0.4, 0)
+
+      // Ring 2 (delayed by 0.5s)
+      if (elapsed > 0.5) {
+        const t2 = (elapsed - 0.5) / 2.5
+        ring2.scale.setScalar(1 + t2 * 80)
+        ringMat2.opacity = Math.max(0.6 - t2 * 0.4, 0)
+      }
+    } else {
+      // Phase 2: Persistent pulsing
+      const pulse = 0.5 + 0.4 * Math.sin(elapsed * 3)
+      const pulse2 = 0.3 + 0.2 * Math.sin(elapsed * 2.1 + 1)
+
       glowMat.opacity = pulse
-      glow.scale.setScalar(1 + 0.2 * Math.sin(elapsed * 3))
+      glow.scale.setScalar(1.5 + 0.3 * Math.sin(elapsed * 3))
+
+      spriteMat.opacity = pulse2
+      haloSprite.scale.setScalar(1.5 + 0.5 * Math.sin(elapsed * 1.8))
+
+      // Rings fade out after initial burst
       ringMat.opacity = 0
-      return
+      ringMat2.opacity = 0
     }
-
-    // Glow ramps up fast
-    glowMat.opacity = Math.min(t * 4, 1)
-    glow.scale.setScalar(1 + t * 0.5)
-
-    // Ring expands
-    const ringScale = 1 + t * 80
-    ring.scale.setScalar(ringScale)
-    ringMat.opacity = Math.max(1 - t * 1.5, 0)
   }
 
   function dispose() {
     glowGeo.dispose()
     glowMat.dispose()
+    spriteMat.dispose()
     ringGeo.dispose()
     ringMat.dispose()
+    ringMat2.dispose()
   }
 
   return {

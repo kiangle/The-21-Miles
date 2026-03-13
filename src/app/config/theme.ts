@@ -1,6 +1,6 @@
 export const theme = {
   fonts: {
-    body: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+    body: "'Instrument Sans', system-ui, sans-serif",
     mono: "'JetBrains Mono', 'Fira Code', monospace",
   },
   colors: {

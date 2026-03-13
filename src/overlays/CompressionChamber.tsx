@@ -195,7 +195,7 @@ export default function CompressionChamber({ impact, visible, currency }: Props)
           marginTop: 8,
           color: COLORS.textSecondary,
           fontSize: 11,
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: "'Instrument Sans', system-ui, sans-serif",
         }}>
           Updated {getTimeSince(impact.as_of_date)}
         </div>

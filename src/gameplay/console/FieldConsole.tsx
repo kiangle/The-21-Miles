@@ -130,7 +130,7 @@ function ControlGroup({ label, children }: { label: string; children: React.Reac
         <span style={{
           fontSize: 9,
           color: COLORS.textSecondary,
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: "'Instrument Sans', system-ui, sans-serif",
           letterSpacing: 0.5,
         }}>
           {label}
@@ -160,7 +160,7 @@ function Chip({ label, active, onClick, color }: {
         background: active ? `${activeColor}22` : 'transparent',
         color: active ? activeColor : COLORS.textSecondary,
         fontSize: 11,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
         cursor: 'pointer',
         transition: 'all 0.2s',
         whiteSpace: 'nowrap',

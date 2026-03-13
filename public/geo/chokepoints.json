@@ -1,0 +1,8 @@
+[
+  { "id": "hormuz", "label": "Strait of Hormuz", "lat": 26.5, "lng": 56.3, "status": "closed", "daily_barrels": 20000000 },
+  { "id": "suez", "label": "Suez Canal", "lat": 30.0, "lng": 32.3, "status": "open", "daily_barrels": 5500000 },
+  { "id": "bab_mandeb", "label": "Bab el-Mandeb", "lat": 12.6, "lng": 43.3, "status": "open", "daily_barrels": 6200000 },
+  { "id": "malacca", "label": "Strait of Malacca", "lat": 1.4, "lng": 103.8, "status": "open", "daily_barrels": 16000000 },
+  { "id": "panama", "label": "Panama Canal", "lat": 9.0, "lng": -79.5, "status": "open", "daily_barrels": 900000 },
+  { "id": "cape", "label": "Cape of Good Hope", "lat": -34.4, "lng": 18.5, "status": "congested", "daily_barrels": 0 }
+]

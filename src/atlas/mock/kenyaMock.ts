@@ -637,6 +637,27 @@ export function handleRequest(method: string, path: string, body: any) {
         first_household_impact: prof ? computeHouseholdImpact(prof) : null,
         evidence_summary: "Built from IEA, EIA, CRS, and WHO evidence with ±15% uncertainty ranges on household estimates.",
         live_params: LIVE_PARAMS,
+        // Atlas-driven extensibility fields
+        countries: [
+          { id: 'kenya', label: 'Kenya', flag: '🇰🇪', lat: -1.29, lng: 36.82, context: '85% of petroleum imported through Gulf routes' },
+          { id: 'japan', label: 'Japan', flag: '🇯🇵', lat: 36.20, lng: 138.25, context: '87% of oil imports transit Hormuz' },
+          { id: 'germany', label: 'Germany', flag: '🇩🇪', lat: 51.16, lng: 10.45, context: 'Replaced Russian gas with Qatari LNG transiting Hormuz' },
+          { id: 'india', label: 'India', flag: '🇮🇳', lat: 20.59, lng: 78.96, context: '60% of oil imports transit Hormuz' },
+          { id: 'usa', label: 'USA', flag: '🇺🇸', lat: 37.09, lng: -95.71, context: 'Global reserve currency — SPR at 392M barrels' },
+          { id: 'uk', label: 'UK', flag: '🇬🇧', lat: 55.38, lng: -3.44, context: "Lloyd's of London — maritime insurance capital" },
+        ],
+        roles: [
+          { id: 'nurse', country_id: 'kenya', label: 'Amara — Nurse, Nairobi', short_label: 'Nurse', intro_line: 'The supply room is full. Rhythm normal.', voice_style: 'clinical precision mixed with worry', icon: '🏥' },
+          { id: 'driver', country_id: 'kenya', label: 'Joseph — Truck Driver, Mombasa Road', short_label: 'Truck Driver', intro_line: 'Diesel is KSh 180. The Mombasa run pays. Barely.', voice_style: 'practical, ground-level', icon: '🚛' },
+        ],
+        future_paths: [
+          { id: 'redSea', label: 'What if Houthis resume Red Sea attacks?', hint: 'The only alternative route becomes contested', direction: 'worse', probability: 0.45, icon: '⚡', trigger_node_ids: ['scenario:fleet_shrink', 'scenario:cape_reroute'] },
+          { id: 'reserves', label: 'What if reserves are released?', hint: '400 million barrels — but finite and one-shot', direction: 'better', probability: 0.70, icon: '🛡', trigger_node_ids: ['scenario:shock_oil_price_spike', 'scenario:spr_depletion'] },
+          { id: 'closureEnds', label: 'What if a ceasefire opens?', hint: 'Oman brokered Iran talks before. Could they again?', direction: 'better', probability: 0.15, icon: '🕊', trigger_node_ids: ['scenario:compression'] },
+        ],
+        narrative_pack: 'kenya',
+        globe_focus: { lat: 26.5, lng: 56.3 },
+        entry_prompt: '21 miles. Where do you live?',
       });
     }
 

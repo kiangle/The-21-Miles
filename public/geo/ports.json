@@ -1,0 +1,9 @@
+[
+  { "id": "mombasa", "label": "Mombasa", "lat": -4.05, "lng": 39.67, "country_id": "kenya", "type": "import" },
+  { "id": "jebel_ali", "label": "Jebel Ali / Dubai", "lat": 25.01, "lng": 55.06, "country_id": null, "type": "transit" },
+  { "id": "rotterdam", "label": "Rotterdam", "lat": 51.95, "lng": 4.14, "country_id": null, "type": "import" },
+  { "id": "singapore", "label": "Singapore", "lat": 1.26, "lng": 103.84, "country_id": null, "type": "transit" },
+  { "id": "yokohama", "label": "Yokohama", "lat": 35.44, "lng": 139.64, "country_id": "japan", "type": "import" },
+  { "id": "houston", "label": "Houston", "lat": 29.74, "lng": -95.27, "country_id": "usa", "type": "export" },
+  { "id": "mumbai", "label": "Mumbai / JNPT", "lat": 18.95, "lng": 72.95, "country_id": "india", "type": "import" }
+]
