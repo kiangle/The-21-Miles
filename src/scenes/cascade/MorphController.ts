@@ -134,12 +134,35 @@ export class MorphController {
     }
   }
 
+  /**
+   * Lens dominance weights. Active lens is strong;
+   * secondary context lenses are ghosted; others are near-invisible.
+   */
+  private static LENS_WEIGHTS: Record<LensId, Record<LensId, number>> = {
+    shipping: { shipping: 1.0, freight: 0.10, medicine: 0.08, household: 0.06 },
+    freight:  { shipping: 0.18, freight: 1.0, medicine: 0.10, household: 0.08 },
+    medicine: { shipping: 0.08, freight: 0.12, medicine: 1.0, household: 0.10 },
+    household:{ shipping: 0.06, freight: 0.08, medicine: 0.10, household: 1.0 },
+  }
+
   showOnly(lens: LensId) {
-    this.renderers.flowBands.setVisible(lens === 'shipping')
-    this.renderers.congestion.setVisible(lens === 'freight')
+    const weights = MorphController.LENS_WEIGHTS[lens]
+
+    // FlowBands (shipping) — visible if weight > threshold
+    this.renderers.flowBands.setVisible(weights.shipping > 0.05)
+
+    // Congestion (freight)
+    this.renderers.congestion.setVisible(weights.freight > 0.05)
+
+    // Filaments (import stress) — context for medicine + freight
     this.renderers.filaments.setVisible(lens === 'medicine' || lens === 'freight')
-    this.renderers.pulses.setVisible(lens === 'medicine')
-    this.renderers.margins.setVisible(lens === 'household')
+
+    // Pulses (medicine)
+    this.renderers.pulses.setVisible(weights.medicine > 0.05)
+
+    // Margins (household)
+    this.renderers.margins.setVisible(weights.household > 0.05)
+
     this.currentLens = lens
     this.state.activeLens = lens
   }

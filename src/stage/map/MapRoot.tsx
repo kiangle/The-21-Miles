@@ -105,55 +105,55 @@ const DARK_STYLE: maplibregl.StyleSpecification = {
     'corridor': { type: 'geojson', data: CORRIDOR_GEOJSON as any },
   },
   layers: [
-    // Deep ocean background
+    // Deep ocean — dark blue-black, not pure black
     {
       id: 'background',
       type: 'background',
-      paint: { 'background-color': '#070710' },
+      paint: { 'background-color': '#070b18' },
     },
-    // East Africa landmass — slightly more visible for context
+    // East Africa landmass — lifted from sea, gives place
     {
       id: 'land-fill',
       type: 'fill',
       source: 'land',
-      paint: { 'fill-color': '#0e0e18' },
+      paint: { 'fill-color': '#0d1220' },
     },
-    // Kenya — raised fill, clearly distinguishable
+    // Kenya — clearly distinguishable from surrounding land
     {
       id: 'kenya-fill',
       type: 'fill',
       source: 'kenya',
-      paint: { 'fill-color': '#161624' },
+      paint: { 'fill-color': '#131a2b' },
     },
-    // Kenya border — more visible
+    // Kenya border — visible boundary
     {
       id: 'kenya-border',
       type: 'line',
       source: 'kenya',
       paint: {
-        'line-color': '#2a2a42',
-        'line-width': 1.8,
+        'line-color': '#27314d',
+        'line-width': 2.0,
       },
     },
-    // Coastline — more readable
+    // Coastline — readable sea/land edge
     {
       id: 'coastline',
       type: 'line',
       source: 'coastline',
       paint: {
-        'line-color': '#1e2850',
-        'line-width': 1.5,
+        'line-color': '#243156',
+        'line-width': 2.0,
       },
     },
-    // Mombasa–Nairobi corridor — gold, dashed, cleaner
+    // Mombasa–Nairobi corridor — warm gold, readable
     {
       id: 'corridor',
       type: 'line',
       source: 'corridor',
       paint: {
-        'line-color': '#C8A96E',
-        'line-width': 2.5,
-        'line-opacity': 0.3,
+        'line-color': '#b88b4a',
+        'line-width': 2.8,
+        'line-opacity': 0.35,
         'line-dasharray': [5, 3],
       },
     },
@@ -243,29 +243,30 @@ export default function MapRoot({ visible, bootstrap, countryId, ruptured, lens 
           display: flex; flex-direction: column; align-items: center;
           pointer-events: none;
         `
-        // Dot — brighter, with stronger glow
+        // Dot — warm gold with strong glow halo
         const dot = document.createElement('div')
         dot.style.cssText = `
-          width: 7px; height: 7px; border-radius: 50%;
-          background: #C8A96E; box-shadow: 0 0 10px rgba(200,169,110,0.5), 0 0 20px rgba(200,169,110,0.2);
+          width: 8px; height: 8px; border-radius: 999px;
+          background: #d7c395;
+          box-shadow: 0 0 10px rgba(215,195,149,0.4), 0 0 22px rgba(215,195,149,0.15);
         `
         el.appendChild(dot)
-        // Label — larger, more visible
+        // Label — readable warm off-white
         const label = document.createElement('div')
         label.textContent = city.name
         label.style.cssText = `
-          color: rgba(200,169,110,0.85); font-size: 11px; margin-top: 4px;
+          color: #cdb37d; font-size: 11px; margin-top: 6px;
           font-family: 'Instrument Sans', system-ui, sans-serif;
-          letter-spacing: 0.6px; white-space: nowrap; font-weight: 500;
-          text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.5);
+          letter-spacing: 0.02em; white-space: nowrap; font-weight: 500;
+          text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 14px rgba(0,0,0,0.6);
         `
         el.appendChild(label)
-        // Sub label — slightly more visible
+        // Sub label — desaturated gold
         if (city.sub) {
           const sub = document.createElement('div')
           sub.textContent = city.sub
           sub.style.cssText = `
-            color: rgba(138,134,128,0.6); font-size: 9px;
+            color: rgba(205,179,125,0.45); font-size: 9px;
             font-family: 'Instrument Sans', system-ui, sans-serif;
             letter-spacing: 0.3px;
           `

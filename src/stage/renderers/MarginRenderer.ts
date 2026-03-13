@@ -1,22 +1,25 @@
 import * as PIXI from 'pixi.js'
 import Matter from 'matter-js'
 import { COLORS } from '../../app/config/constants'
+import {
+  drawFoodMiniature, drawTrail, drawLaneField,
+  drawNodeGlow, drawDensityBloom,
+} from './primitives/MiniatureFactory'
 
 /**
- * MarginRenderer — Food lens. PHYSICS-FIRST.
+ * MarginRenderer — Food lens. PHYSICS + MINIATURES.
  *
  * Human question: Why is my month shrinking?
  *
  * What you SEE:
- * - Food bodies flowing from port → market → household sinks
- * - Bodies split at junctions, pulled by competing attractors
- * - Under pressure: fewer bodies, some sinks starve (visibly empty)
- * - Thinning: body count drops, gaps grow in distribution
- * - Households with fewer bodies nearby glow dimmer / shift orange
- * - The uneven distribution IS the visual — not icons, not symbols
+ * - Branching distribution system (port → market → households)
+ * - Food crate/parcel miniatures moving through branches
+ * - Market node and household sink nodes as warm glows
+ * - Some branches visibly starving first (fewer crates, dimmer glow)
+ * - Terminal flow widths thinning under pressure
+ * - Warmer color shift toward stress
  *
- * Matter.js bodies + competing attractor forces.
- * Pixi renders body positions with node density halos.
+ * 10–18 visible food crates. Sink competition is physics-emergent.
  */
 
 const HOUSEHOLD_HEX = PIXI.utils.string2hex(COLORS.household)
@@ -25,16 +28,15 @@ const STRESS_HEX = PIXI.utils.string2hex(COLORS.importStress)
 function lerpColor(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff
   const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff
-  const r = Math.round(ar + (br - ar) * t)
-  const g = Math.round(ag + (bg - ag) * t)
-  const bl = Math.round(ab + (bb - ab) * t)
-  return (r << 16) | (g << 8) | bl
+  return (Math.round(ar + (br - ar) * t) << 16) | (Math.round(ag + (bg - ag) * t) << 8) | Math.round(ab + (bb - ab) * t)
 }
 
 interface FoodBody {
   body: Matter.Body
   waypointIdx: number
-  sinkIdx: number // which sink this body is heading to (-1 = not assigned)
+  sinkIdx: number
+  trail: { x: number; y: number }[]
+  prevAngle: number
 }
 
 interface SinkNode {
@@ -42,7 +44,8 @@ interface SinkNode {
   y: number
   label: string
   isHousehold: boolean
-  nearbyCount: number // how many bodies are close (computed each frame)
+  nearbyCount: number
+  demandWeight: number
 }
 
 interface FlowPath {
@@ -52,20 +55,19 @@ interface FlowPath {
 
 export class MarginRenderer {
   private container: PIXI.Container
-  private bodyGfx: PIXI.Graphics
   private pathGfx: PIXI.Graphics
-  private nodeGfx: PIXI.Graphics
   private densityGfx: PIXI.Graphics
+  private nodeGfx: PIXI.Graphics
+  private actorGfx: PIXI.Graphics
 
   private engine: Matter.Engine
   private bodies: FoodBody[] = []
   private sinks: SinkNode[] = []
   private flows: FlowPath[] = []
 
-  // Spawn point (first flow's start)
   private spawnPoint: { x: number; y: number } | null = null
   private spawnTimer = 0
-  private spawnInterval = 0.4
+  private spawnInterval = 0.5
 
   private erosion = 0
   private pressure = 0.5
@@ -74,9 +76,10 @@ export class MarginRenderer {
   // Legacy compat
   private bands: { from: { x: number; y: number }; to: { x: number; y: number }; phase: number }[] = []
 
-  private readonly MAX_BODIES = 60
+  private readonly MAX_BODIES = 16
   private readonly ATTRACT_STRENGTH = 0.000025
-  private readonly SINK_RADIUS = 30 // proximity to count as "near" a sink
+  private readonly SINK_RADIUS = 30
+  private readonly TRAIL_LEN = 4
 
   constructor(parent: PIXI.Container, engine: Matter.Engine) {
     this.container = new PIXI.Container()
@@ -86,96 +89,71 @@ export class MarginRenderer {
 
     this.pathGfx = new PIXI.Graphics()
     this.container.addChild(this.pathGfx)
-
     this.densityGfx = new PIXI.Graphics()
     this.container.addChild(this.densityGfx)
-
     this.nodeGfx = new PIXI.Graphics()
     this.container.addChild(this.nodeGfx)
-
-    this.bodyGfx = new PIXI.Graphics()
-    this.container.addChild(this.bodyGfx)
+    this.actorGfx = new PIXI.Graphics()
+    this.container.addChild(this.actorGfx)
   }
 
-  setErosion(pct: number) {
-    this.erosion = Math.max(0, Math.min(1, pct / 100))
-  }
-
-  setPressure(p: number) {
-    this.pressure = Math.max(0, Math.min(1.5, p))
-  }
-
-  setPerspective(role: 'nurse' | 'driver' | null) {
-    this.perspective = role
-  }
+  setErosion(pct: number) { this.erosion = Math.max(0, Math.min(1, pct / 100)) }
+  setPressure(p: number) { this.pressure = Math.max(0, Math.min(1.5, p)) }
+  setPerspective(role: 'nurse' | 'driver' | null) { this.perspective = role }
 
   addDistributionFlow(path: { x: number; y: number }[], _particleCount: number, isTerminal = false) {
     this.flows.push({ path, isTerminal })
-    if (!this.spawnPoint && path.length > 0) {
-      this.spawnPoint = path[0]
-    }
+    if (!this.spawnPoint && path.length > 0) this.spawnPoint = path[0]
   }
 
   addMarketNode(x: number, y: number, label: string) {
     const isHousehold = /home|household/i.test(label)
-    this.sinks.push({ x, y, label, isHousehold, nearbyCount: 0 })
+    this.sinks.push({ x, y, label, isHousehold, nearbyCount: 0, demandWeight: isHousehold ? 2 : 1 })
   }
 
   addBand(from: { x: number; y: number }, to: { x: number; y: number }) {
     this.bands.push({ from, to, phase: Math.random() * Math.PI * 2 })
   }
 
-  /** Call after all flows and sinks are added. Spawns initial bodies. */
   initPhysics() {
     if (!this.spawnPoint) return
-
-    // Spawn initial food bodies
-    const initialCount = Math.floor(this.MAX_BODIES * 0.6)
-    for (let i = 0; i < initialCount; i++) {
-      this.spawnFoodBody()
-    }
+    // Spawn initial food crates
+    for (let i = 0; i < 8; i++) this.spawnFoodBody()
   }
 
   private spawnFoodBody() {
     if (this.bodies.length >= this.MAX_BODIES || !this.spawnPoint) return
-
-    // Under pressure, spawn fewer
-    const spawnChance = Math.max(0.2, 1 - this.pressure * 0.5)
+    const spawnChance = Math.max(0.3, 1 - this.pressure * 0.4)
     if (Math.random() > spawnChance) return
 
     const sp = this.spawnPoint
-    const radius = 1.2 + Math.random() * 1.3
+    const radius = 1.5 + Math.random() * 1.0
     const body = Matter.Bodies.circle(
-      sp.x + (Math.random() - 0.5) * 20,
-      sp.y + (Math.random() - 0.5) * 20,
+      sp.x + (Math.random() - 0.5) * 15,
+      sp.y + (Math.random() - 0.5) * 15,
       radius,
       {
-        density: 0.0004,
-        frictionAir: 0.025 + Math.random() * 0.015,
-        restitution: 0.15,
-        friction: 0.05,
+        density: 0.0004, frictionAir: 0.025 + Math.random() * 0.015,
+        restitution: 0.15, friction: 0.05,
         label: 'food',
         collisionFilter: { category: 0x0004, mask: 0x0004 | 0x0008 },
       },
     )
     Matter.Composite.add(this.engine.world, body)
 
-    // Assign to a random sink (weighted — households more likely)
+    // Weighted sink assignment
     let sinkIdx = -1
-    if (this.sinks.length > 0) {
-      // Under pressure: some bodies get no sink assignment (they wander and thin)
-      if (Math.random() > this.pressure * 0.3) {
-        const weights = this.sinks.map(s => s.isHousehold ? 2 : 1)
-        const total = weights.reduce((a, b) => a + b, 0)
-        let r = Math.random() * total
-        for (let i = 0; i < weights.length; i++) {
-          r -= weights[i]
-          if (r <= 0) { sinkIdx = i; break }
-        }
+    if (this.sinks.length > 0 && Math.random() > this.pressure * 0.3) {
+      const weights = this.sinks.map(s => s.demandWeight)
+      const total = weights.reduce((a, b) => a + b, 0)
+      let r = Math.random() * total
+      for (let i = 0; i < weights.length; i++) {
+        r -= weights[i]
+        if (r <= 0) { sinkIdx = i; break }
       }
     }
 
-    this.bodies.push({ body, waypointIdx: 0, sinkIdx })
+    this.bodies.push({ body, waypointIdx: 0, sinkIdx, trail: [], prevAngle: 0 })
   }
 
   update(delta: number) {
@@ -186,7 +164,7 @@ export class MarginRenderer {
     // ── Spawn timer ──
     this.spawnTimer += dt
     const adjInterval = this.spawnInterval * (1 + this.pressure * 1.5)
-    if (this.spawnTimer >= adjInterval && this.bodies.length < this.MAX_BODIES) {
+    if (this.spawnTimer >= adjInterval) {
       this.spawnTimer = 0
       this.spawnFoodBody()
     }
@@ -194,20 +172,15 @@ export class MarginRenderer {
     // ── Reset sink counts ──
     for (const sink of this.sinks) sink.nearbyCount = 0
 
-    // ── Apply forces: attract bodies toward their assigned sink ──
+    // ── Apply sink attractor forces ──
     for (let i = this.bodies.length - 1; i >= 0; i--) {
       const fb = this.bodies[i]
-
-      // First, flow through path waypoints (non-terminal flows)
-      // Then attract toward assigned sink
       let target: { x: number; y: number } | null = null
 
       if (fb.sinkIdx >= 0 && fb.sinkIdx < this.sinks.length) {
         target = this.sinks[fb.sinkIdx]
       } else if (this.sinks.length > 0) {
-        // Unassigned bodies drift toward nearest sink weakly
-        let nearest = 0
-        let nearestDist = Infinity
+        let nearest = 0, nearestDist = Infinity
         for (let s = 0; s < this.sinks.length; s++) {
           const d = Math.sqrt((fb.body.position.x - this.sinks[s].x) ** 2 + (fb.body.position.y - this.sinks[s].y) ** 2)
           if (d < nearestDist) { nearestDist = d; nearest = s }
@@ -220,7 +193,6 @@ export class MarginRenderer {
         const dy = target.y - fb.body.position.y
         const dist = Math.sqrt(dx * dx + dy * dy)
 
-        // Count bodies near sinks
         if (dist < this.SINK_RADIUS) {
           for (let s = 0; s < this.sinks.length; s++) {
             const sd = Math.sqrt((fb.body.position.x - this.sinks[s].x) ** 2 + (fb.body.position.y - this.sinks[s].y) ** 2)
@@ -228,21 +200,30 @@ export class MarginRenderer {
           }
         }
 
-        // Recycle if very close to sink for too long
+        // Recycle close to sink
         if (dist < 8) {
           Matter.Composite.remove(this.engine.world, fb.body)
           this.bodies.splice(i, 1)
           continue
         }
 
-        // Attract toward sink
         if (dist > 3) {
           const str = this.ATTRACT_STRENGTH * (1 - this.pressure * 0.3)
           Matter.Body.applyForce(fb.body, fb.body.position, {
-            x: (dx / dist) * str,
-            y: (dy / dist) * str,
+            x: (dx / dist) * str, y: (dy / dist) * str,
           })
         }
+      }
+
+      // Trail
+      fb.trail.push({ x: fb.body.position.x, y: fb.body.position.y })
+      if (fb.trail.length > this.TRAIL_LEN) fb.trail.shift()
+
+      // Angle
+      const vx = fb.body.velocity.x
+      const vy = fb.body.velocity.y
+      if (Math.abs(vx) > 0.05 || Math.abs(vy) > 0.05) {
+        fb.prevAngle += (Math.atan2(vy, vx) - fb.prevAngle) * 0.1
       }
     }
 
@@ -250,45 +231,34 @@ export class MarginRenderer {
     this.pathGfx.clear()
     this.densityGfx.clear()
     this.nodeGfx.clear()
-    this.bodyGfx.clear()
+    this.actorGfx.clear()
 
-    // Draw flow path guides (dim lines showing distribution routes)
+    // Flow path guides
     for (const flow of this.flows) {
       const path = flow.path
       if (path.length < 2) continue
       const lineColor = lerpColor(HOUSEHOLD_HEX, STRESS_HEX, pressureT)
-      const alpha = flow.isTerminal ? 0.05 : 0.08
-      const width = flow.isTerminal ? 0.8 : 1.2
-
-      this.pathGfx.lineStyle(width * 2.5, lineColor, alpha * 0.4)
-      this.pathGfx.moveTo(path[0].x, path[0].y)
-      for (let j = 1; j < path.length; j++) this.pathGfx.lineTo(path[j].x, path[j].y)
-
-      this.pathGfx.lineStyle(width, lineColor, alpha)
-      this.pathGfx.moveTo(path[0].x, path[0].y)
-      for (let j = 1; j < path.length; j++) this.pathGfx.lineTo(path[j].x, path[j].y)
+      const alpha = flow.isTerminal ? 0.06 : 0.1
+      const width = flow.isTerminal ? 1.5 : 2.5
+      drawLaneField(this.pathGfx, path, lineColor, alpha, width)
     }
 
-    // ── Sink nodes: density-based halos ──
+    // Density bloom
+    const positions = this.bodies.map(fb => fb.body.position)
+    const densColor = lerpColor(HOUSEHOLD_HEX, STRESS_HEX, pressureT)
+    drawDensityBloom(this.densityGfx, positions, 18, densColor, 2)
+
+    // Sink nodes: density-based halos
     for (const sink of this.sinks) {
-      // Saturation = how many bodies are near this sink
-      const saturation = Math.min(1, sink.nearbyCount / 6)
+      const saturation = Math.min(1, sink.nearbyCount / 4)
       const starving = saturation < 0.3
       const color = lerpColor(HOUSEHOLD_HEX, STRESS_HEX, starving ? 0.7 : pressureT * 0.3)
-
-      // Density halo — bigger and brighter with more bodies
       const outerR = sink.isHousehold ? 12 : 18
-      const haloAlpha = 0.05 + saturation * 0.15
+      const intensity = 0.3 + saturation * 0.6
 
-      this.nodeGfx.beginFill(color, haloAlpha * 0.5)
-      this.nodeGfx.drawCircle(sink.x, sink.y, outerR * (0.5 + saturation * 0.5))
-      this.nodeGfx.endFill()
+      drawNodeGlow(this.nodeGfx, sink.x, sink.y, outerR, color, intensity)
 
-      this.nodeGfx.beginFill(color, haloAlpha)
-      this.nodeGfx.drawCircle(sink.x, sink.y, outerR * 0.4 * (0.5 + saturation * 0.5))
-      this.nodeGfx.endFill()
-
-      // Starvation warning — pulsing when starving
+      // Starvation warning
       if (starving && this.pressure > 0.3) {
         const warn = 0.15 * (1 - saturation) * (0.5 + 0.5 * Math.sin(time * 3))
         this.nodeGfx.lineStyle(0.8, STRESS_HEX, warn)
@@ -297,80 +267,39 @@ export class MarginRenderer {
       }
     }
 
-    // ── Density field: show where bodies cluster ──
-    this.drawDensityField(this.densityGfx, pressureT)
-
-    // ── Draw food bodies ──
+    // Food crate miniatures + trails
     for (const fb of this.bodies) {
       const bx = fb.body.position.x
       const by = fb.body.position.y
-      const rad = (fb.body as any).circleRadius || 1.5
       const speed = Math.sqrt(fb.body.velocity.x ** 2 + fb.body.velocity.y ** 2)
       const color = lerpColor(HOUSEHOLD_HEX, STRESS_HEX, pressureT)
 
-      // Slow bodies glow (arriving/stuck near sinks)
-      const slowGlow = Math.max(0, 0.1 - speed * 0.03)
-      if (slowGlow > 0.02) {
-        this.bodyGfx.beginFill(color, slowGlow)
-        this.bodyGfx.drawCircle(bx, by, rad * 2.5)
-        this.bodyGfx.endFill()
+      if (fb.trail.length >= 2) {
+        drawTrail(this.actorGfx, fb.trail, color, Math.min(0.2, speed * 0.05), 0.7)
       }
 
-      // Core body
-      const alpha = 0.45 + Math.min(0.4, 0.2 / (speed + 0.3))
-      this.bodyGfx.beginFill(color, alpha)
-      this.bodyGfx.drawCircle(bx, by, rad)
-      this.bodyGfx.endFill()
+      const alpha = 0.5 + Math.min(0.4, 0.2 / (speed + 0.3))
+      drawFoodMiniature(this.actorGfx, bx, by, fb.prevAngle, 0.65, alpha)
     }
 
-    // Perspective alpha
     this.container.alpha = this.perspective === 'nurse' ? 0.9 : 0.8
   }
 
-  private drawDensityField(g: PIXI.Graphics, pressureT: number) {
-    const cellSize = 20
-    const density: Map<string, number> = new Map()
-
-    for (const fb of this.bodies) {
-      const cx = Math.floor(fb.body.position.x / cellSize)
-      const cy = Math.floor(fb.body.position.y / cellSize)
-      const key = `${cx},${cy}`
-      density.set(key, (density.get(key) || 0) + 1)
-    }
-
-    const color = lerpColor(HOUSEHOLD_HEX, STRESS_HEX, pressureT)
-    for (const [key, count] of density) {
-      if (count < 2) continue
-      const [cx, cy] = key.split(',').map(Number)
-      const x = (cx + 0.5) * cellSize
-      const y = (cy + 0.5) * cellSize
-      const intensity = Math.min(1, count / 6)
-      g.beginFill(color, intensity * 0.05)
-      g.drawCircle(x, y, cellSize)
-      g.endFill()
-    }
-  }
-
-  setVisible(visible: boolean) {
-    this.container.visible = visible
-  }
+  setVisible(visible: boolean) { this.container.visible = visible }
 
   clear() {
-    for (const fb of this.bodies) {
-      Matter.Composite.remove(this.engine.world, fb.body)
-    }
+    for (const fb of this.bodies) Matter.Composite.remove(this.engine.world, fb.body)
     this.bodies = []
     this.sinks = []
     this.flows = []
-    this.bodyGfx.clear()
     this.pathGfx.clear()
-    this.nodeGfx.clear()
     this.densityGfx.clear()
+    this.nodeGfx.clear()
+    this.actorGfx.clear()
   }
 
   dispose() {
     this.clear()
-    this.bodyGfx.destroy()
     this.container.destroy({ children: true })
   }
 }
