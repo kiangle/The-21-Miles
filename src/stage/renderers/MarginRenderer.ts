@@ -127,7 +127,7 @@ export class MarginRenderer {
     if (Math.random() > spawnChance) return
 
     const sp = this.spawnPoint
-    const radius = 1.5 + Math.random() * 1.0
+    const radius = 2.5 + Math.random() * 1.5
     const body = Matter.Bodies.circle(
       sp.x + (Math.random() - 0.5) * 15,
       sp.y + (Math.random() - 0.5) * 15,
@@ -278,11 +278,11 @@ export class MarginRenderer {
         drawTrail(this.actorGfx, fb.trail, color, Math.min(0.2, speed * 0.05), 0.7)
       }
 
-      const alpha = 0.5 + Math.min(0.4, 0.2 / (speed + 0.3))
-      drawFoodMiniature(this.actorGfx, bx, by, fb.prevAngle, 0.65, alpha)
+      const alpha = 0.6 + Math.min(0.35, 0.2 / (speed + 0.3))
+      drawFoodMiniature(this.actorGfx, bx, by, fb.prevAngle, 0.9, alpha)
     }
 
-    this.container.alpha = this.perspective === 'nurse' ? 0.9 : 0.8
+    // Alpha controlled by MorphController lens dominance — not by perspective
   }
 
   setVisible(visible: boolean) { this.container.visible = visible }

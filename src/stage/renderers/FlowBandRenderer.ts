@@ -7,22 +7,26 @@ import {
 } from './primitives/MiniatureFactory'
 
 /**
- * FlowBandRenderer — Shipping lens. PHYSICS + MINIATURES.
+ * FlowBandRenderer — Shipping lens (OFFSHORE CAUSE LAYER).
  *
  * Human question: Where did the ships go?
  *
+ * Shipping is background cause in the Nairobi scene.
+ * Freight is the main hero. Shipping is the upstream explanation.
+ *
  * What you SEE:
- * - Miniature ships riding maritime lanes
+ * - A readable lane toward Mombasa (not scattered dots in ocean)
+ * - Ship miniatures riding constrained maritime lanes
  * - Ships queue behind chokepoint funnel walls
- * - Queue bloom at blockage
+ * - Visible constrained inflow — not open-space drift
  * - Reroute peel-off around Africa when pressure rises
  * - Wake trails behind each ship
  * - Lane field glow beneath the flow
  * - Downstream thinning: fewer ships past chokepoint
  *
- * 12–20 visible ship miniatures, not hundreds of dots.
- * The lane field + queue bloom + density are primary;
- * ships make the system concrete.
+ * 12–18 visible ship miniatures.
+ * The lane field + queue bloom are primary.
+ * Ships make the system concrete.
  */
 
 interface VesselBody {
@@ -43,7 +47,7 @@ export class FlowBandRenderer {
   private engine: Matter.Engine
   private vessels: VesselBody[] = []
   private chokepointWalls: Matter.Body[] = []
-  private gapWidth = 30
+  private gapWidth = 35
 
   private mainPath: { x: number; y: number }[] = []
   private reroutePath: { x: number; y: number }[] = []
@@ -56,9 +60,9 @@ export class FlowBandRenderer {
   private perspective: 'nurse' | 'driver' | null = null
   private constricted = false
 
-  private readonly VESSEL_COUNT = 18
-  private readonly TRAIL_LEN = 8
-  private readonly FLOW_STRENGTH = 0.000035
+  private readonly VESSEL_COUNT = 14
+  private readonly TRAIL_LEN = 10
+  private readonly FLOW_STRENGTH = 0.000038
   private readonly REROUTE_FRACTION = 0.35
 
   constructor(parent: PIXI.Container, engine: Matter.Engine) {
@@ -102,8 +106,8 @@ export class FlowBandRenderer {
     if (!this.chokepointPos || this.mainPath.length < 2) return
 
     const cp = this.chokepointPos
-    const wallLen = 60
-    const wallThick = 6
+    const wallLen = 70
+    const wallThick = 7
     const halfGap = this.gapWidth / 2
 
     // Chokepoint funnel walls
@@ -123,10 +127,10 @@ export class FlowBandRenderer {
       const t = Math.random()
       const segIdx = Math.min(Math.floor(t * (this.mainPath.length - 1)), this.mainPath.length - 2)
       const lt = t * (this.mainPath.length - 1) - segIdx
-      const spawnX = this.mainPath[segIdx].x + (this.mainPath[segIdx + 1].x - this.mainPath[segIdx].x) * lt + (Math.random() - 0.5) * 20
-      const spawnY = this.mainPath[segIdx].y + (this.mainPath[segIdx + 1].y - this.mainPath[segIdx].y) * lt + (Math.random() - 0.5) * 15
+      const spawnX = this.mainPath[segIdx].x + (this.mainPath[segIdx + 1].x - this.mainPath[segIdx].x) * lt + (Math.random() - 0.5) * 25
+      const spawnY = this.mainPath[segIdx].y + (this.mainPath[segIdx + 1].y - this.mainPath[segIdx].y) * lt + (Math.random() - 0.5) * 18
 
-      const radius = 2.5 + Math.random() * 1.5
+      const radius = 3.5 + Math.random() * 1.5  // bigger collision body
       const body = Matter.Bodies.circle(spawnX, spawnY, radius, {
         density: 0.0006,
         frictionAir: 0.03 + Math.random() * 0.015,
@@ -156,11 +160,11 @@ export class FlowBandRenderer {
     const rerouteHex = PIXI.utils.string2hex(COLORS.importStress)
     const dt = _delta
 
-    // ── Update chokepoint gap ──
+    // ── Update chokepoint gap — VISIBLE narrowing ──
     if (this.chokepointPos && this.chokepointWalls.length === 2) {
       const cp = this.chokepointPos
-      const wallLen = 60
-      const targetGap = this.constricted ? Math.max(3, 30 - this.pressure * 22) : 30
+      const wallLen = 70
+      const targetGap = this.constricted ? Math.max(4, 35 - this.pressure * 25) : 35
       this.gapWidth += (targetGap - this.gapWidth) * 0.05
       const halfGap = this.gapWidth / 2
       Matter.Body.setPosition(this.chokepointWalls[0], { x: cp.x, y: cp.y - halfGap - wallLen / 2 })
@@ -178,10 +182,10 @@ export class FlowBandRenderer {
       const path = v.isReroute ? reroute : main
       if (path.length < 2) continue
 
-      // Reroute decision
+      // Reroute decision near chokepoint
       if (hasReroute && !v.isReroute && this.chokepointPos) {
         const distToChoke = Math.sqrt((bx - this.chokepointPos.x) ** 2 + (by - this.chokepointPos.y) ** 2)
-        if (distToChoke < 60 && Math.random() < this.REROUTE_FRACTION * this.pressure * dt * 0.5) {
+        if (distToChoke < 70 && Math.random() < this.REROUTE_FRACTION * this.pressure * dt * 0.5) {
           v.isReroute = true
           v.waypointIdx = 0
         }
@@ -192,14 +196,14 @@ export class FlowBandRenderer {
       const dy = wp.y - by
       const dist = Math.sqrt(dx * dx + dy * dy)
 
-      if (dist < 20 && v.waypointIdx < path.length - 1) v.waypointIdx++
+      if (dist < 22 && v.waypointIdx < path.length - 1) v.waypointIdx++
 
-      // Recycle
-      if (v.waypointIdx >= path.length - 1 && dist < 25) {
+      // Recycle at end of path
+      if (v.waypointIdx >= path.length - 1 && dist < 30) {
         const start = main[0]
         Matter.Body.setPosition(v.body, {
-          x: start.x + (Math.random() - 0.5) * 60,
-          y: start.y + (Math.random() - 0.5) * 40,
+          x: start.x + (Math.random() - 0.5) * 70,
+          y: start.y + (Math.random() - 0.5) * 50,
         })
         Matter.Body.setVelocity(v.body, { x: 0, y: 0 })
         v.waypointIdx = 0
@@ -219,7 +223,7 @@ export class FlowBandRenderer {
       v.trail.push({ x: bx, y: by })
       if (v.trail.length > this.TRAIL_LEN) v.trail.shift()
 
-      // Smooth angle from velocity
+      // Smooth angle
       const vx = v.body.velocity.x
       const vy = v.body.velocity.y
       if (Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1) {
@@ -234,64 +238,62 @@ export class FlowBandRenderer {
     this.bloomGfx.clear()
     this.actorGfx.clear()
 
-    // Lane fields (dim glow showing routes)
-    drawLaneField(this.laneGfx, main, shippingHex, 0.1, 4)
+    // Lane fields — STRONG, READABLE shipping lanes
+    drawLaneField(this.laneGfx, main, shippingHex, 0.14, 5)
     if (reroute.length >= 2) {
-      const a = this.constricted ? Math.min(0.15, this.pressure * 0.12) : 0.02
-      drawLaneField(this.laneGfx, reroute, rerouteHex, a, 3)
+      const a = this.constricted ? Math.min(0.2, this.pressure * 0.15) : 0.03
+      drawLaneField(this.laneGfx, reroute, rerouteHex, a, 4)
     }
     for (const op of this.otherPaths) {
-      drawLaneField(this.laneGfx, op.path, op.color, 0.06, op.width * 0.6)
+      drawLaneField(this.laneGfx, op.path, op.color, 0.08, op.width * 0.8)
     }
 
     // Density bloom where ships cluster
     const positions = this.vessels.map(v => v.body.position)
-    drawDensityBloom(this.densityGfx, positions, 25, shippingHex, 2)
+    drawDensityBloom(this.densityGfx, positions, 30, shippingHex, 2)
 
-    // Queue bloom at chokepoint
-    if (this.chokepointPos && this.constricted && this.pressure > 0.2) {
+    // Queue bloom at chokepoint — BIG when constricted
+    if (this.chokepointPos && this.constricted && this.pressure > 0.15) {
       drawQueueBloom(this.bloomGfx, this.chokepointPos.x, this.chokepointPos.y, this.pressure, 0xFF4444)
     }
 
-    // Port glow
+    // Port glow at Mombasa — bigger, warmer
     if (this.portPos) {
-      drawNodeGlow(this.actorGfx, this.portPos.x, this.portPos.y, 14, PIXI.utils.string2hex(COLORS.household), 0.8)
+      drawNodeGlow(this.actorGfx, this.portPos.x, this.portPos.y, 20, PIXI.utils.string2hex(COLORS.household), 0.9)
     }
 
-    // Ship miniatures + wakes
+    // Ship miniatures + wakes — BIGGER scale
     for (const v of this.vessels) {
       const bx = v.body.position.x
       const by = v.body.position.y
       const color = v.isReroute ? rerouteHex : shippingHex
       const speed = Math.sqrt(v.body.velocity.x ** 2 + v.body.velocity.y ** 2)
 
-      // Wake trail
+      // Wake trail — more visible
       if (v.trail.length >= 2) {
-        const wakeAlpha = Math.min(0.3, speed * 0.08)
-        drawWake(this.actorGfx, v.trail, color, wakeAlpha, 1.2)
+        const wakeAlpha = Math.min(0.35, speed * 0.1)
+        drawWake(this.actorGfx, v.trail, color, wakeAlpha, 1.5)
       }
 
-      // Ship miniature
-      const scale = 0.8 + ((v.body as any).circleRadius || 3) * 0.08
-      const alpha = 0.5 + Math.min(0.45, 0.3 / (speed + 0.4))
+      // Ship miniature — scale 1.0 base (was 0.8), clearly visible
+      const scale = 1.0 + ((v.body as any).circleRadius || 3.5) * 0.06
+      const alpha = 0.6 + Math.min(0.35, 0.3 / (speed + 0.4))
       drawShipMiniature(this.actorGfx, bx, by, v.prevAngle, scale, alpha)
     }
 
-    // Chokepoint stress glow
+    // Chokepoint stress glow — bigger, pulsing
     if (this.chokepointPos && this.constricted) {
       const cp = this.chokepointPos
       const time = Date.now() * 0.001
-      const pulse = 0.5 + 0.3 * Math.sin(time * 2)
-      for (let i = 4; i >= 0; i--) {
-        const r = (4 + i * 4) * (1 + this.pressure * 0.3)
-        const a = 0.025 * pulse * (5 - i) * this.pressure
-        this.bloomGfx.beginFill(0xFF4444, Math.min(0.12, a))
+      const pulse = 0.5 + 0.4 * Math.sin(time * 2)
+      for (let i = 5; i >= 0; i--) {
+        const r = (5 + i * 5) * (1 + this.pressure * 0.4)
+        const a = 0.03 * pulse * (6 - i) * this.pressure
+        this.bloomGfx.beginFill(0xFF4444, Math.min(0.15, a))
         this.bloomGfx.drawCircle(cp.x, cp.y, r)
         this.bloomGfx.endFill()
       }
     }
-
-    this.container.alpha = this.perspective === 'nurse' ? 0.5 : 1.0
   }
 
   setVisible(visible: boolean) { this.container.visible = visible }

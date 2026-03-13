@@ -205,11 +205,17 @@ export class MorphController {
    * Lens dominance weights. Active lens is strong;
    * secondary context lenses are ghosted; others are near-invisible.
    */
+  /**
+   * Active lens: 1.0 — dominant, fully visible.
+   * Secondary context: 0.15–0.22 — ghosted but present.
+   * Others: 0.04–0.08 — near-invisible background.
+   * The selected lens must be OBVIOUS immediately.
+   */
   private static LENS_WEIGHTS: Record<LensId, Record<LensId, number>> = {
-    shipping: { shipping: 1.0, freight: 0.10, medicine: 0.08, household: 0.06 },
-    freight:  { shipping: 0.18, freight: 1.0, medicine: 0.10, household: 0.08 },
-    medicine: { shipping: 0.08, freight: 0.12, medicine: 1.0, household: 0.10 },
-    household:{ shipping: 0.06, freight: 0.08, medicine: 0.10, household: 1.0 },
+    shipping: { shipping: 1.0, freight: 0.15, medicine: 0.06, household: 0.04 },
+    freight:  { shipping: 0.22, freight: 1.0, medicine: 0.08, household: 0.06 },
+    medicine: { shipping: 0.06, freight: 0.15, medicine: 1.0, household: 0.08 },
+    household:{ shipping: 0.04, freight: 0.06, medicine: 0.08, household: 1.0 },
   }
 
   /**

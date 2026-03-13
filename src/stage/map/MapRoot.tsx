@@ -118,43 +118,43 @@ const DARK_STYLE: maplibregl.StyleSpecification = {
       source: 'land',
       paint: { 'fill-color': '#0d1220' },
     },
-    // Kenya — clearly distinguishable from surrounding land
+    // Kenya — clearly distinguishable from surrounding land, lifted
     {
       id: 'kenya-fill',
       type: 'fill',
       source: 'kenya',
-      paint: { 'fill-color': '#131a2b' },
+      paint: { 'fill-color': '#151d30' },
     },
-    // Kenya border — visible boundary
+    // Kenya border — visible boundary, warmer
     {
       id: 'kenya-border',
       type: 'line',
       source: 'kenya',
       paint: {
-        'line-color': '#27314d',
-        'line-width': 2.0,
+        'line-color': '#2e3a58',
+        'line-width': 2.2,
       },
     },
-    // Coastline — readable sea/land edge
+    // Coastline — readable sea/land edge, stronger
     {
       id: 'coastline',
       type: 'line',
       source: 'coastline',
       paint: {
-        'line-color': '#243156',
-        'line-width': 2.0,
+        'line-color': '#2a3860',
+        'line-width': 2.5,
       },
     },
-    // Mombasa–Nairobi corridor — warm gold, readable
+    // Mombasa–Nairobi corridor — warm gold, STRONG, readable artery
     {
       id: 'corridor',
       type: 'line',
       source: 'corridor',
       paint: {
-        'line-color': '#b88b4a',
-        'line-width': 2.8,
-        'line-opacity': 0.35,
-        'line-dasharray': [5, 3],
+        'line-color': '#c89850',
+        'line-width': 3.5,
+        'line-opacity': 0.45,
+        'line-dasharray': [6, 3],
       },
     },
   ],
@@ -243,32 +243,32 @@ export default function MapRoot({ visible, bootstrap, countryId, ruptured, lens 
           display: flex; flex-direction: column; align-items: center;
           pointer-events: none;
         `
-        // Dot — warm gold with strong glow halo
+        // Dot — warm gold, BIGGER with strong glow
         const dot = document.createElement('div')
         dot.style.cssText = `
-          width: 8px; height: 8px; border-radius: 999px;
-          background: #d7c395;
-          box-shadow: 0 0 10px rgba(215,195,149,0.4), 0 0 22px rgba(215,195,149,0.15);
+          width: 10px; height: 10px; border-radius: 999px;
+          background: #dcc89e;
+          box-shadow: 0 0 12px rgba(220,200,158,0.5), 0 0 28px rgba(220,200,158,0.2);
         `
         el.appendChild(dot)
-        // Label — readable warm off-white
+        // Label — readable warm off-white, BIGGER
         const label = document.createElement('div')
         label.textContent = city.name
         label.style.cssText = `
-          color: #cdb37d; font-size: 11px; margin-top: 6px;
+          color: #d4b87d; font-size: 13px; margin-top: 6px;
           font-family: 'Instrument Sans', system-ui, sans-serif;
-          letter-spacing: 0.02em; white-space: nowrap; font-weight: 500;
-          text-shadow: 0 1px 6px rgba(0,0,0,0.9), 0 0 14px rgba(0,0,0,0.6);
+          letter-spacing: 0.04em; white-space: nowrap; font-weight: 600;
+          text-shadow: 0 1px 8px rgba(0,0,0,0.95), 0 0 18px rgba(0,0,0,0.7);
         `
         el.appendChild(label)
-        // Sub label — desaturated gold
+        // Sub label — desaturated gold, readable
         if (city.sub) {
           const sub = document.createElement('div')
           sub.textContent = city.sub
           sub.style.cssText = `
-            color: rgba(205,179,125,0.45); font-size: 9px;
+            color: rgba(212,184,125,0.5); font-size: 10px;
             font-family: 'Instrument Sans', system-ui, sans-serif;
-            letter-spacing: 0.3px;
+            letter-spacing: 0.4px; margin-top: 2px;
           `
           el.appendChild(sub)
         }

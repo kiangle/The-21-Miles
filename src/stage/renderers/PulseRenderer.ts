@@ -7,17 +7,23 @@ import {
 } from './primitives/MiniatureFactory'
 
 /**
- * PulseRenderer — Medicine lens. PHYSICS + MINIATURES.
+ * PulseRenderer — MEDICINE CONSEQUENCE LAYER.
  *
  * Human question: Why is the clinic running short?
  *
+ * This scene answers: A distant chokepoint becomes a delayed clinic shelf.
+ *
  * What you SEE:
- * - One sparse, critical supply lifeline
- * - Medicine packet miniatures only occasionally (cadence-driven)
- * - Primary signal is TIMING and ABSENCE
- * - Missed beats: ghost pulse / empty rhythm gap
- * - Shelf depletion linked to failed arrivals
- * - Fragile, sparse — not busy, not crowded
+ * - ONE sparse, critical supply lifeline (Mombasa → clinic)
+ * - Medicine packet miniatures arriving OCCASIONALLY (cadence-driven)
+ * - Primary signal is TIMING and ABSENCE — not bulk
+ * - Missed beats: expanding ghost rings + danger glow
+ * - Shelf bar depletes visibly when gaps appear
+ * - Heartbeat rhythm monitor showing hits and misses
+ * - Fragile, sparse — NOT busy, NOT crowded
+ *
+ * Visual rule: Medicine should feel like TIMING FAILURE, not bulk shortage.
+ * The user sees: regular cadence breaking down into irregular, unreliable supply.
  */
 
 interface MedicineBody {
@@ -49,7 +55,7 @@ export class PulseRenderer {
   private ghosts: GhostPulse[] = []
 
   private supplyPath: { x: number; y: number }[] = []
-  private channelWidth = 10
+  private channelWidth = 14   // wider channel for bigger packets
 
   private cadenceTimer = 0
   private cadenceInterval = 2.0
@@ -64,10 +70,10 @@ export class PulseRenderer {
   private pressure = 0.5
   private perspective: 'nurse' | 'driver' | null = null
 
-  private readonly MAX_BODIES = 12
-  private readonly FLOW_STRENGTH = 0.000025
-  private readonly CHANNEL_SEGMENTS = 6
-  private readonly TRAIL_LEN = 5
+  private readonly MAX_BODIES = 10
+  private readonly FLOW_STRENGTH = 0.00003
+  private readonly CHANNEL_SEGMENTS = 8
+  private readonly TRAIL_LEN = 6
 
   constructor(parent: PIXI.Container, engine: Matter.Engine) {
     this.container = new PIXI.Container()
@@ -125,7 +131,7 @@ export class PulseRenderer {
 
         const wall = Matter.Bodies.rectangle(
           pt.x + nx * side * halfW, pt.y + ny * side * halfW,
-          segLen * 1.3, 3,
+          segLen * 1.3, 4,
           {
             isStatic: true, angle: Math.atan2(dy, dx), label: 'medicine_guide',
             collisionFilter: { category: 0x0008, mask: 0x0004 },
@@ -141,11 +147,11 @@ export class PulseRenderer {
     if (this.supplyPath.length < 2 || this.bodies.length >= this.MAX_BODIES) return
     const start = this.supplyPath[0]
     const body = Matter.Bodies.circle(
-      start.x + (Math.random() - 0.5) * 4,
-      start.y + (Math.random() - 0.5) * 4,
-      2.2,
+      start.x + (Math.random() - 0.5) * 5,
+      start.y + (Math.random() - 0.5) * 5,
+      3.0,  // bigger collision radius for bigger miniatures
       {
-        density: 0.0004, frictionAir: 0.035, restitution: 0.15, friction: 0.05,
+        density: 0.0005, frictionAir: 0.03, restitution: 0.15, friction: 0.05,
         label: 'medicine',
         collisionFilter: { category: 0x0004, mask: 0x0004 | 0x0008 },
       },
@@ -161,10 +167,10 @@ export class PulseRenderer {
     const dangerHex = 0xCC3366
     if (this.supplyPath.length < 2) return
 
-    // ── Cadence ──
+    // ── Cadence — timing is the core mechanic ──
     this.cadenceTimer += dt
-    const adjustedInterval = this.cadenceInterval * (1 + this.pressure * 0.8)
-    const skipBeat = this.pressure > 0.5 && Math.random() < this.pressure * 0.25
+    const adjustedInterval = this.cadenceInterval * (1 + this.pressure * 1.0)
+    const skipBeat = this.pressure > 0.4 && Math.random() < this.pressure * 0.3
 
     if (this.cadenceTimer >= adjustedInterval) {
       this.cadenceTimer = 0
@@ -172,11 +178,14 @@ export class PulseRenderer {
         this.spawnMedicineBody()
         this.heartbeatHistory.push(1)
       } else {
+        // MISSED BEAT — this is the KEY visual event
         const start = this.supplyPath[0]
-        this.ghosts.push({ x: start.x, y: start.y, age: 0, maxAge: 1.2 })
+        this.ghosts.push({ x: start.x, y: start.y, age: 0, maxAge: 1.8 })
         this.heartbeatHistory.push(0)
+        // Shelf depletes on missed beats
+        this.shelfTargetFill = Math.max(0, this.shelfTargetFill - 0.08)
       }
-      if (this.heartbeatHistory.length > 30) this.heartbeatHistory.shift()
+      if (this.heartbeatHistory.length > 40) this.heartbeatHistory.shift()
     }
 
     // ── Flow forces ──
@@ -189,16 +198,17 @@ export class PulseRenderer {
       const dy = target.y - mb.body.position.y
       const dist = Math.sqrt(dx * dx + dy * dy)
 
-      if (dist < 12 && mb.waypointIdx < lastIdx) mb.waypointIdx++
+      if (dist < 14 && mb.waypointIdx < lastIdx) mb.waypointIdx++
 
-      if (mb.waypointIdx >= lastIdx && dist < 15) {
+      if (mb.waypointIdx >= lastIdx && dist < 18) {
         Matter.Composite.remove(this.engine.world, mb.body)
         this.bodies.splice(i, 1)
-        this.shelfTargetFill = Math.min(1, this.shelfTargetFill + 0.15)
+        // Shelf refills on successful arrival
+        this.shelfTargetFill = Math.min(1, this.shelfTargetFill + 0.12)
         continue
       }
 
-      if (dist > 2) {
+      if (dist > 3) {
         const str = this.FLOW_STRENGTH * (1 - this.pressure * 0.35)
         Matter.Body.applyForce(mb.body, mb.body.position, { x: (dx / dist) * str, y: (dy / dist) * str })
       }
@@ -219,98 +229,177 @@ export class PulseRenderer {
       if (this.ghosts[i].age >= this.ghosts[i].maxAge) this.ghosts.splice(i, 1)
     }
 
-    // ── Shelf depletion ──
-    this.shelfTargetFill = Math.max(0, this.shelfTargetFill - dt * 0.015 * this.pressure)
-    this.shelfFill += (this.shelfTargetFill - this.shelfFill) * 0.05
+    // ── Shelf depletion — continuous drain under pressure ──
+    this.shelfTargetFill = Math.max(0, this.shelfTargetFill - dt * 0.012 * this.pressure)
+    this.shelfFill += (this.shelfTargetFill - this.shelfFill) * 0.06
 
     // ── RENDER ──
     this.pathGfx.clear()
     this.ghostGfx.clear()
     this.actorGfx.clear()
 
-    // Supply lifeline
-    drawLaneField(this.pathGfx, this.supplyPath, medHex, 0.08, 2)
+    // Supply lifeline — narrow, glowing, FRAGILE feeling
+    drawLaneField(this.pathGfx, this.supplyPath, medHex, 0.12, 3)
 
-    // Ghost pulses
+    // Channel edge hints — narrow rails
+    this.drawChannelEdges(this.pathGfx, medHex)
+
+    // Ghost pulses — BIGGER, more dramatic missed-beat rings
     for (const ghost of this.ghosts) {
       const t = ghost.age / ghost.maxAge
-      const r = 8 + t * 20
-      const a = 0.2 * (1 - t)
-      this.ghostGfx.lineStyle(1.5 * (1 - t), dangerHex, a)
+      const r = 12 + t * 30       // bigger rings
+      const a = 0.3 * (1 - t)     // stronger initial alpha
+      // Outer ring
+      this.ghostGfx.lineStyle(2 * (1 - t), dangerHex, a)
       this.ghostGfx.drawCircle(ghost.x, ghost.y, r)
       this.ghostGfx.lineStyle(0)
-      this.ghostGfx.beginFill(dangerHex, a * 0.3)
-      this.ghostGfx.drawCircle(ghost.x, ghost.y, r * 0.5)
+      // Inner danger fill
+      this.ghostGfx.beginFill(dangerHex, a * 0.25)
+      this.ghostGfx.drawCircle(ghost.x, ghost.y, r * 0.4)
       this.ghostGfx.endFill()
+      // Cross mark at center — "missed"
+      if (t < 0.5) {
+        const crossA = a * 0.6
+        this.ghostGfx.lineStyle(1.5, dangerHex, crossA)
+        this.ghostGfx.moveTo(ghost.x - 4, ghost.y - 4)
+        this.ghostGfx.lineTo(ghost.x + 4, ghost.y + 4)
+        this.ghostGfx.moveTo(ghost.x + 4, ghost.y - 4)
+        this.ghostGfx.lineTo(ghost.x - 4, ghost.y + 4)
+        this.ghostGfx.lineStyle(0)
+      }
     }
 
-    // Medicine miniatures
+    // Medicine miniatures — BIGGER scale, clearly visible packets
     for (const mb of this.bodies) {
       const bx = mb.body.position.x
       const by = mb.body.position.y
       const speed = Math.sqrt(mb.body.velocity.x ** 2 + mb.body.velocity.y ** 2)
 
-      if (mb.trail.length >= 2) drawTrail(this.actorGfx, mb.trail, medHex, Math.min(0.2, speed * 0.05), 0.8)
+      if (mb.trail.length >= 2) drawTrail(this.actorGfx, mb.trail, medHex, Math.min(0.25, speed * 0.06), 1.0)
 
-      const pulse = 0.7 + 0.2 * Math.sin(time * 2 + mb.spawnTime * 0.001)
-      drawMedicineMiniature(this.actorGfx, bx, by, mb.prevAngle, 0.7, pulse)
+      const pulse = 0.75 + 0.2 * Math.sin(time * 2 + mb.spawnTime * 0.001)
+      // Scale 1.0 base (was 0.7) — readable medicine packets
+      drawMedicineMiniature(this.actorGfx, bx, by, mb.prevAngle, 1.0, pulse)
     }
 
-    // Pulse points
+    // Clinic/pulse point glows — bigger, more visible
     for (const pp of this.pulsePoints) {
       const wave = Math.sin(time * 1.5 + pp.phase)
-      drawNodeGlow(this.actorGfx, pp.x, pp.y, 10 * this.supplyLevel, medHex, 0.4 * this.supplyLevel * (0.5 + 0.5 * Math.abs(wave)))
+      drawNodeGlow(this.actorGfx, pp.x, pp.y, 16 * this.supplyLevel, medHex, 0.5 * this.supplyLevel * (0.5 + 0.5 * Math.abs(wave)))
+
+      // Danger halo when supply is low
       if (this.supplyLevel < 0.7) {
-        const wa = (1 - this.supplyLevel) * 0.2 * (0.5 + 0.5 * Math.sin(time * 2.5 + pp.phase))
-        this.actorGfx.lineStyle(0.8, dangerHex, wa)
-        this.actorGfx.drawCircle(pp.x, pp.y, 12 * (0.5 + 0.5 * wave))
+        const wa = (1 - this.supplyLevel) * 0.25 * (0.5 + 0.5 * Math.sin(time * 2.5 + pp.phase))
+        this.actorGfx.lineStyle(1.2, dangerHex, wa)
+        this.actorGfx.drawCircle(pp.x, pp.y, 16 * (0.5 + 0.5 * wave))
         this.actorGfx.lineStyle(0)
       }
     }
 
+    // Shelf bar — BIGGER, CLEARER, central to the narrative
     this.drawShelfBar(medHex, dangerHex)
+
+    // Heartbeat rhythm — BIGGER, more readable
     this.drawHeartbeat(medHex, dangerHex)
-    this.container.alpha = this.perspective === 'nurse' ? 1.0 : 0.7
+  }
+
+  private drawChannelEdges(g: PIXI.Graphics, color: number) {
+    const path = this.supplyPath
+    if (path.length < 2) return
+    const halfW = this.channelWidth / 2
+
+    for (let side = -1; side <= 1; side += 2) {
+      g.lineStyle(0.6, color, 0.08)
+      let started = false
+      for (let i = 0; i <= 16; i++) {
+        const t = i / 16
+        const pt = this.samplePath(t)
+        const ptN = this.samplePath(Math.min(1, t + 0.02))
+        const dx = ptN.x - pt.x
+        const dy = ptN.y - pt.y
+        const len = Math.sqrt(dx * dx + dy * dy)
+        if (len < 0.01) continue
+        const nx = -dy / len
+        const ny = dx / len
+        const wx = pt.x + nx * side * halfW
+        const wy = pt.y + ny * side * halfW
+        if (!started) { g.moveTo(wx, wy); started = true }
+        else g.lineTo(wx, wy)
+      }
+    }
+    g.lineStyle(0)
   }
 
   private drawShelfBar(medColor: number, dangerColor: number) {
     this.shelfGfx.clear()
     if (this.shelfPos.x === 0 && this.shelfPos.y === 0) return
-    const barW = 50, barH = 4
+
+    // BIGGER shelf bar — 70px wide, 6px tall, clearly visible
+    const barW = 70, barH = 6
     const bx = this.shelfPos.x - barW / 2
-    const by = this.shelfPos.y - 15
-    this.shelfGfx.lineStyle(0.5, medColor, 0.2)
-    this.shelfGfx.drawRect(bx, by, barW, barH)
+    const by = this.shelfPos.y - 18
+
+    // Shelf label
+    // Outline
+    this.shelfGfx.lineStyle(1, medColor, 0.25)
+    this.shelfGfx.drawRoundedRect(bx - 1, by - 1, barW + 2, barH + 2, 2)
     this.shelfGfx.lineStyle(0)
+
+    // Background
+    this.shelfGfx.beginFill(0x1a1220, 0.4)
+    this.shelfGfx.drawRoundedRect(bx, by, barW, barH, 1)
+    this.shelfGfx.endFill()
+
+    // Fill — color shifts from medicine to danger as it empties
     const fillW = barW * Math.max(0, this.shelfFill)
-    if (fillW > 0.5) {
+    if (fillW > 1) {
       const t = 1 - this.shelfFill
       const r1 = (medColor >> 16) & 0xFF, g1 = (medColor >> 8) & 0xFF, b1 = medColor & 0xFF
       const r2 = (dangerColor >> 16) & 0xFF, g2 = (dangerColor >> 8) & 0xFF, b2 = dangerColor & 0xFF
       const fillColor = (Math.round(r1 + (r2 - r1) * t) << 16) | (Math.round(g1 + (g2 - g1) * t) << 8) | Math.round(b1 + (b2 - b1) * t)
-      this.shelfGfx.beginFill(fillColor, 0.5 + this.shelfFill * 0.3)
-      this.shelfGfx.drawRect(bx, by, fillW, barH)
+      this.shelfGfx.beginFill(fillColor, 0.6 + this.shelfFill * 0.3)
+      this.shelfGfx.drawRoundedRect(bx, by, fillW, barH, 1)
       this.shelfGfx.endFill()
+    }
+
+    // Critical warning — pulsing outline when shelf is low
+    if (this.shelfFill < 0.35) {
+      const time = Date.now() * 0.001
+      const pulse = 0.3 + 0.3 * Math.sin(time * 3)
+      this.shelfGfx.lineStyle(1.5, dangerColor, (1 - this.shelfFill) * pulse)
+      this.shelfGfx.drawRoundedRect(bx - 2, by - 2, barW + 4, barH + 4, 3)
+      this.shelfGfx.lineStyle(0)
     }
   }
 
   private drawHeartbeat(medColor: number, dangerColor: number) {
     this.heartbeatGfx.clear()
     if (this.heartbeatHistory.length < 3 || (this.shelfPos.x === 0 && this.shelfPos.y === 0)) return
-    const lx = this.shelfPos.x - 30, ly = this.shelfPos.y + 10, step = 60 / 30
-    this.heartbeatGfx.lineStyle(0.8, medColor, 0.3)
+
+    // BIGGER heartbeat — wider, taller, more readable
+    const lx = this.shelfPos.x - 40
+    const ly = this.shelfPos.y + 14
+    const step = 80 / 40
+    const beatH = 8
+
+    this.heartbeatGfx.lineStyle(1.0, medColor, 0.35)
     for (let i = 0; i < this.heartbeatHistory.length; i++) {
       const x = lx + i * step
       const beat = this.heartbeatHistory[i]
-      const y = ly - (beat ? 5 * Math.sin((i / this.heartbeatHistory.length) * Math.PI) : 0)
+      const y = ly - (beat ? beatH * Math.sin((i / this.heartbeatHistory.length) * Math.PI) : 0)
       if (i === 0) this.heartbeatGfx.moveTo(x, y)
       else this.heartbeatGfx.lineTo(x, y)
+
+      // Missed beat marker — bigger, more visible
       if (beat === 0) {
-        this.heartbeatGfx.lineStyle(0.8, dangerColor, 0.4)
-        this.heartbeatGfx.drawCircle(x, ly, 1.5)
-        this.heartbeatGfx.lineStyle(0.8, medColor, 0.3)
+        this.heartbeatGfx.lineStyle(0)
+        this.heartbeatGfx.beginFill(dangerColor, 0.5)
+        this.heartbeatGfx.drawCircle(x, ly, 2.5)
+        this.heartbeatGfx.endFill()
+        this.heartbeatGfx.lineStyle(1.0, medColor, 0.35)
       }
     }
+    this.heartbeatGfx.lineStyle(0)
   }
 
   private pathLength(): number {

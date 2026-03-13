@@ -7,21 +7,27 @@ import {
 } from './primitives/MiniatureFactory'
 
 /**
- * CongestionRenderer — Freight lens. PHYSICS + MINIATURES.
+ * CongestionRenderer — FREIGHT HERO LAYER.
  *
  * Human question: Why is the corridor slowing?
  *
- * What you SEE:
- * - Dominant inland corridor (Mombasa → Nairobi)
- * - Miniature trucks moving in convoy bursts
- * - Depot queue at Mombasa (trucks accumulate before release)
- * - Bottleneck gate on corridor (trucks pile up)
- * - Irregular spacing under pressure
- * - Corridor drag: trucks slow near bottleneck
- * - Faint exhaust/motion streaks
+ * This is the MAIN visual layer in the gold-standard scene.
  *
- * 10–18 visible trucks. Convoy burst emission.
- * Corridor band + bottleneck buildup are primary.
+ * What you SEE:
+ * - ONE strong Mombasa→Nairobi corridor band (wide, glowing)
+ * - Convoy truck miniatures moving in grouped bursts (3-5, pause, repeat)
+ * - Depot queue near Mombasa — trucks accumulate before gate opens
+ * - Bottleneck gate that VISIBLY narrows under pressure
+ * - Delayed, uneven release after the gate
+ * - Irregular convoy spacing under pressure (Day3→Month1 dramatic)
+ * - Corridor drag: trucks slow, bunch, pile up
+ *
+ * 10–18 visible truck miniatures. Convoy burst emission.
+ * The corridor band + bottleneck buildup are PRIMARY.
+ * Trucks make it concrete.
+ *
+ * Rule: I should perceive the CORRIDOR SYSTEM first,
+ * the truck actors second, the detail third.
  */
 
 interface FreightBody {
@@ -52,9 +58,10 @@ export class CongestionRenderer {
   private corridorWalls: Matter.Body[] = []
 
   private corridorPath: { x: number; y: number }[] = []
-  private corridorWidth = 22
+  private corridorWidth = 32      // wider for readable corridor
   private bottleneckPos = 0.4
-  private bottleneckWidth = 8
+  private bottleneckWidth = 10    // tighter bottleneck
+  private depotPos: { x: number; y: number } | null = null
 
   // Convoy burst emission
   private currentBurst: ConvoyBurst | null = null
@@ -66,9 +73,9 @@ export class CongestionRenderer {
   private attractorTarget: { x: number; y: number } | null = null
 
   private readonly MAX_BODIES = 16
-  private readonly FLOW_STRENGTH = 0.00003
-  private readonly WALL_SEGMENTS = 8
-  private readonly TRAIL_LEN = 5
+  private readonly FLOW_STRENGTH = 0.000035
+  private readonly WALL_SEGMENTS = 10
+  private readonly TRAIL_LEN = 7
 
   constructor(parent: PIXI.Container, engine: Matter.Engine) {
     this.container = new PIXI.Container()
@@ -88,6 +95,7 @@ export class CongestionRenderer {
 
   setCorridor(path: { x: number; y: number }[]) {
     this.corridorPath = path
+    if (path.length > 0) this.depotPos = path[0]
     this.buildCorridorWalls()
     this.spawnInitialBodies()
   }
@@ -120,13 +128,13 @@ export class CongestionRenderer {
         const nx = -dy / len
         const ny = dx / len
         const distToB = Math.abs(t - this.bottleneckPos)
-        const narrowF = Math.max(0, 1 - distToB * 4)
+        const narrowF = Math.max(0, 1 - distToB * 3.5)
         const localW = this.corridorWidth - narrowF * (this.corridorWidth - this.bottleneckWidth) * this.pressure
 
         const wall = Matter.Bodies.rectangle(
           pt.x + nx * side * localW / 2,
           pt.y + ny * side * localW / 2,
-          segLen * 1.2, 4,
+          segLen * 1.2, 5,
           {
             isStatic: true, angle: Math.atan2(dy, dx),
             label: 'corridor_wall',
@@ -141,7 +149,6 @@ export class CongestionRenderer {
 
   private spawnInitialBodies() {
     if (this.corridorPath.length < 2) return
-    // Spawn a few initial trucks
     for (let i = 0; i < 6; i++) {
       this.spawnTruck(Math.random() * 0.8)
     }
@@ -150,14 +157,14 @@ export class CongestionRenderer {
   private spawnTruck(progressAlongPath: number) {
     if (this.bodies.length >= this.MAX_BODIES || this.corridorPath.length < 2) return
     const pt = this.samplePath(this.corridorPath, progressAlongPath)
-    const radius = 2.0 + Math.random() * 1.5
+    const radius = 3.0 + Math.random() * 1.5  // bigger collision body for bigger miniatures
     const body = Matter.Bodies.circle(
-      pt.x + (Math.random() - 0.5) * 6,
-      pt.y + (Math.random() - 0.5) * 6,
+      pt.x + (Math.random() - 0.5) * 8,
+      pt.y + (Math.random() - 0.5) * 8,
       radius,
       {
-        density: 0.0005 + Math.random() * 0.0004,
-        frictionAir: 0.025 + Math.random() * 0.02,
+        density: 0.0006 + Math.random() * 0.0004,
+        frictionAir: 0.02 + Math.random() * 0.02,
         restitution: 0.2,
         friction: 0.12 + Math.random() * 0.08,
         label: 'freight',
@@ -174,7 +181,7 @@ export class CongestionRenderer {
   setPressure(p: number) {
     const old = this.pressure
     this.pressure = Math.max(0, Math.min(1.5, p))
-    if (Math.abs(old - this.pressure) > 0.15 && this.corridorPath.length >= 2) {
+    if (Math.abs(old - this.pressure) > 0.12 && this.corridorPath.length >= 2) {
       this.buildCorridorWalls()
     }
   }
@@ -184,16 +191,17 @@ export class CongestionRenderer {
   update(delta: number) {
     const dt = delta
     const freightHex = PIXI.utils.string2hex(COLORS.freight)
+    const stressHex = PIXI.utils.string2hex(COLORS.importStress)
     const path = this.corridorPath
     if (path.length < 2) return
 
-    // ── Convoy burst emission ──
+    // ── Convoy burst emission — grouped release, not steady stream ──
     this.burstCooldown -= dt
     if (!this.currentBurst && this.burstCooldown <= 0 && this.bodies.length < this.MAX_BODIES) {
       this.groupCounter++
       this.currentBurst = {
-        count: 3 + Math.floor(Math.random() * 3), // 3-5 trucks
-        spacing: 0.3 + this.pressure * 0.4, // slower spacing under pressure
+        count: 3 + Math.floor(Math.random() * 3), // 3-5 trucks per burst
+        spacing: 0.25 + this.pressure * 0.5,       // slower spacing under pressure
         timer: 0,
         emitted: 0,
       }
@@ -202,16 +210,16 @@ export class CongestionRenderer {
       this.currentBurst.timer += dt
       if (this.currentBurst.timer >= this.currentBurst.spacing) {
         this.currentBurst.timer = 0
-        this.spawnTruck(0.02 + Math.random() * 0.05) // near start
+        this.spawnTruck(0.02 + Math.random() * 0.05) // near Mombasa
         this.currentBurst.emitted++
         if (this.currentBurst.emitted >= this.currentBurst.count) {
           this.currentBurst = null
-          this.burstCooldown = 2 + this.pressure * 3 // longer pause under pressure
+          this.burstCooldown = 1.5 + this.pressure * 4  // much longer pause under pressure
         }
       }
     }
 
-    // ── Apply flow forces ──
+    // ── Apply flow forces — corridor-constrained movement ──
     const lastIdx = path.length - 1
     for (let i = this.bodies.length - 1; i >= 0; i--) {
       const fb = this.bodies[i]
@@ -220,17 +228,18 @@ export class CongestionRenderer {
       const dy = target.y - fb.body.position.y
       const dist = Math.sqrt(dx * dx + dy * dy)
 
-      if (dist < 15 && fb.waypointIdx < lastIdx) fb.waypointIdx++
+      if (dist < 18 && fb.waypointIdx < lastIdx) fb.waypointIdx++
 
       // Recycle
-      if (fb.waypointIdx >= lastIdx && dist < 20) {
+      if (fb.waypointIdx >= lastIdx && dist < 25) {
         Matter.Composite.remove(this.engine.world, fb.body)
         this.bodies.splice(i, 1)
         continue
       }
 
-      if (dist > 2) {
-        const flowStr = this.FLOW_STRENGTH * (1 - this.pressure * 0.4)
+      if (dist > 3) {
+        // Flow strength drops under pressure → visible slowdown
+        const flowStr = this.FLOW_STRENGTH * (1 - this.pressure * 0.45)
         Matter.Body.applyForce(fb.body, fb.body.position, {
           x: (dx / dist) * flowStr, y: (dy / dist) * flowStr,
         })
@@ -240,7 +249,7 @@ export class CongestionRenderer {
       fb.trail.push({ x: fb.body.position.x, y: fb.body.position.y })
       if (fb.trail.length > this.TRAIL_LEN) fb.trail.shift()
 
-      // Smooth angle
+      // Smooth angle from velocity
       const vx = fb.body.velocity.x
       const vy = fb.body.velocity.y
       if (Math.abs(vx) > 0.05 || Math.abs(vy) > 0.05) {
@@ -255,28 +264,42 @@ export class CongestionRenderer {
     this.bloomGfx.clear()
     this.actorGfx.clear()
 
-    // Corridor lane field
-    drawLaneField(this.corridorGfx, path, freightHex, 0.12, 5)
+    // Corridor lane field — STRONG, WIDE, this IS the primary visual
+    drawLaneField(this.corridorGfx, path, freightHex, 0.18, 8)
 
-    // Corridor edge lines (showing walls)
+    // Corridor edge lines showing walls + narrowing
     this.drawCorridorEdges(this.corridorGfx, freightHex)
 
-    // Density bloom along corridor
+    // Density bloom along corridor — where trucks cluster
     const positions = this.bodies.map(fb => fb.body.position)
-    drawDensityBloom(this.densityGfx, positions, 20, freightHex, 2)
+    drawDensityBloom(this.densityGfx, positions, 25, freightHex, 2)
 
-    // Bottleneck bloom
-    if (this.pressure > 0.3) {
+    // Bottleneck bloom — BIG, DRAMATIC when pressure is high
+    if (this.pressure > 0.25) {
       const bpt = this.samplePath(path, this.bottleneckPos)
-      drawQueueBloom(this.bloomGfx, bpt.x, bpt.y, this.pressure * 0.7, freightHex)
+      drawQueueBloom(this.bloomGfx, bpt.x, bpt.y, this.pressure * 0.9, stressHex)
+
+      // Bottleneck gate indicator — pulsing narrowing mark
+      const time = Date.now() * 0.001
+      const pulse = 0.5 + 0.4 * Math.sin(time * 2.5)
+      const gateAlpha = this.pressure * 0.25 * pulse
+      this.bloomGfx.lineStyle(2, stressHex, gateAlpha)
+      this.bloomGfx.drawCircle(bpt.x, bpt.y, 6 + this.pressure * 12)
+      this.bloomGfx.lineStyle(0)
     }
 
-    // Depot glow at Mombasa
-    if (this.attractorTarget) {
-      drawNodeGlow(this.bloomGfx, this.attractorTarget.x, this.attractorTarget.y, 16, freightHex, 0.6 + this.pressure * 0.3)
+    // Depot glow at Mombasa — bigger, more visible
+    if (this.depotPos) {
+      drawNodeGlow(this.bloomGfx, this.depotPos.x, this.depotPos.y, 22, freightHex, 0.7 + this.pressure * 0.3)
     }
 
-    // Truck miniatures + trails
+    // Destination glow at Nairobi
+    if (path.length > 0) {
+      const end = path[path.length - 1]
+      drawNodeGlow(this.bloomGfx, end.x, end.y, 18, freightHex, 0.5)
+    }
+
+    // Truck miniatures + motion trails — BIGGER scale than before
     for (const fb of this.bodies) {
       const bx = fb.body.position.x
       const by = fb.body.position.y
@@ -284,17 +307,25 @@ export class CongestionRenderer {
 
       // Motion trail (exhaust streaks)
       if (fb.trail.length >= 2) {
-        const trailAlpha = Math.min(0.25, speed * 0.06)
-        drawTrail(this.actorGfx, fb.trail, freightHex, trailAlpha, 1.0)
+        const trailAlpha = Math.min(0.3, speed * 0.08)
+        drawTrail(this.actorGfx, fb.trail, freightHex, trailAlpha, 1.5)
       }
 
-      // Truck miniature
-      const scale = 0.7 + ((fb.body as any).circleRadius || 2.5) * 0.08
-      const alpha = 0.5 + Math.min(0.45, 0.25 / (speed + 0.3))
+      // Truck miniature — scale 1.1 base (was 0.7), clearly visible
+      const scale = 1.1 + ((fb.body as any).circleRadius || 3) * 0.05
+      const alpha = 0.6 + Math.min(0.35, 0.2 / (speed + 0.3))
+
+      // Stressed trucks get warmer color (subtle)
+      if (speed < 0.3 && this.pressure > 0.5) {
+        // Stopped/slow truck near bottleneck — draw stress indicator
+        const stressAlpha = (1 - speed / 0.3) * this.pressure * 0.15
+        this.actorGfx.beginFill(stressHex, stressAlpha)
+        this.actorGfx.drawCircle(bx, by, 8 * scale)
+        this.actorGfx.endFill()
+      }
+
       drawTruckMiniature(this.actorGfx, bx, by, fb.prevAngle, scale, alpha)
     }
-
-    this.container.alpha = this.perspective === 'driver' ? 1.0 : 0.75
   }
 
   private drawCorridorEdges(g: PIXI.Graphics, color: number) {
@@ -302,10 +333,10 @@ export class CongestionRenderer {
     if (path.length < 2) return
 
     for (let side = -1; side <= 1; side += 2) {
-      g.lineStyle(0.8, color, 0.08)
+      g.lineStyle(1.2, color, 0.12)
       let started = false
-      for (let i = 0; i <= 20; i++) {
-        const t = i / 20
+      for (let i = 0; i <= 24; i++) {
+        const t = i / 24
         const pt = this.samplePath(path, t)
         const ptN = this.samplePath(path, Math.min(1, t + 0.01))
         const dx = ptN.x - pt.x
@@ -315,7 +346,7 @@ export class CongestionRenderer {
         const nx = -dy / len
         const ny = dx / len
         const distToB = Math.abs(t - this.bottleneckPos)
-        const narrowF = Math.max(0, 1 - distToB * 4)
+        const narrowF = Math.max(0, 1 - distToB * 3.5)
         const localW = this.corridorWidth - narrowF * (this.corridorWidth - this.bottleneckWidth) * this.pressure
 
         const wx = pt.x + nx * side * localW / 2
@@ -324,6 +355,7 @@ export class CongestionRenderer {
         else g.lineTo(wx, wy)
       }
     }
+    g.lineStyle(0)
   }
 
   // ── Path utilities ──
