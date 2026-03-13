@@ -37,7 +37,7 @@ export default function ComparePanel({ whatIf, visible }: Props) {
         <div style={{
           color: COLORS.textSecondary,
           fontSize: 11,
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: "'Instrument Sans', system-ui, sans-serif",
           marginBottom: 8,
           letterSpacing: 0.5,
         }}>
@@ -75,7 +75,7 @@ export default function ComparePanel({ whatIf, visible }: Props) {
         <div style={{
           color: whatIf.direction === 'worsens' ? COLORS.danger : COLORS.success,
           fontSize: 11,
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: "'Instrument Sans', system-ui, sans-serif",
           marginBottom: 8,
           letterSpacing: 0.5,
         }}>

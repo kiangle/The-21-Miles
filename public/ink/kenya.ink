@@ -129,7 +129,7 @@ Fleet down to {fleetPct}% of normal. Oil, food, and medicine compete for the sam
 
 === medicine_path ===
 # SCENE: cascade
-# MORPH: shipping -> freight -> import_stress -> medicine
+# MORPH: shipping > freight > import_stress > medicine
 # SOUND: domain_crossing
 Fuel becomes freight.
 Freight becomes delay.
@@ -166,7 +166,7 @@ There is no separate health crisis. It's the energy crisis, four steps further d
 
 === food_path ===
 # SCENE: cascade
-# MORPH: shipping -> freight -> fertilizer -> food
+# MORPH: shipping > freight > fertilizer > food
 # SOUND: domain_crossing
 Four forces hit your grocery bill from four directions.
 Transport: ships rerouting adds $1.2 million per voyage.

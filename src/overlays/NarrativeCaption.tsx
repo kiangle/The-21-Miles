@@ -59,7 +59,7 @@ export default function NarrativeCaption({ text, choices, onChoose, visible }: P
         color: COLORS.textPrimary,
         fontSize: 16,
         lineHeight: 1.7,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
         margin: 0,
         whiteSpace: 'pre-wrap',
       }}>
@@ -79,7 +79,7 @@ export default function NarrativeCaption({ text, choices, onChoose, visible }: P
                 padding: '10px 16px',
                 color: COLORS.gold,
                 fontSize: 14,
-                fontFamily: 'Inter, sans-serif',
+                fontFamily: "'Instrument Sans', system-ui, sans-serif",
                 cursor: 'pointer',
                 textAlign: 'left',
                 transition: 'all 0.2s',

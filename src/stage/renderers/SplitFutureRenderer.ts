@@ -30,7 +30,7 @@ export class SplitFutureRenderer {
 
     // Labels — NO JARGON
     const style = new PIXI.TextStyle({
-      fontFamily: 'Inter, sans-serif',
+      fontFamily: "'Instrument Sans', system-ui, sans-serif",
       fontSize: 14,
       fill: COLORS.textPrimary,
       letterSpacing: 1,

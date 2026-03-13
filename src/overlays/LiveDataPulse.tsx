@@ -52,7 +52,7 @@ export default function LiveDataPulse({ liveParams, visible }: Props) {
         <span style={{
           color: COLORS.textSecondary,
           fontSize: 11,
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: "'Instrument Sans', system-ui, sans-serif",
         }}>
           {timeText}
         </span>

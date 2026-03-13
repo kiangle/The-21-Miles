@@ -50,7 +50,7 @@ export default function ConnectionReveal({ connections, visible }: Props) {
       <div style={{
         color: COLORS.textSecondary,
         fontSize: 11,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
         marginBottom: 12,
         letterSpacing: 1,
         textTransform: 'uppercase',
@@ -61,7 +61,7 @@ export default function ConnectionReveal({ connections, visible }: Props) {
         color: COLORS.textPrimary,
         fontSize: 16,
         lineHeight: 1.7,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
         margin: 0,
       }}>
         {conn.condition}

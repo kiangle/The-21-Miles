@@ -60,7 +60,7 @@ export default function ShareGenerator({ currency, monthlyHit, monthlyHitPct, cr
         color: COLORS.textPrimary,
         fontSize: 22,
         fontWeight: 'bold',
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
         marginBottom: 4,
       }}>
         {currency} {monthlyHit.toLocaleString()}
@@ -68,7 +68,7 @@ export default function ShareGenerator({ currency, monthlyHit, monthlyHitPct, cr
       <div style={{
         color: COLORS.textSecondary,
         fontSize: 13,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
         marginBottom: 16,
       }}>
         extra every month · Day {crisisDay}
@@ -77,7 +77,7 @@ export default function ShareGenerator({ currency, monthlyHit, monthlyHitPct, cr
         color: COLORS.textPrimary,
         fontSize: 14,
         lineHeight: 1.6,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
         margin: '0 0 16px 0',
       }}>
         {roleName}'s story doesn't end here. Twenty-one miles of water decides
@@ -93,7 +93,7 @@ export default function ShareGenerator({ currency, monthlyHit, monthlyHitPct, cr
             background: 'transparent',
             color: COLORS.gold,
             fontSize: 13,
-            fontFamily: 'Inter, sans-serif',
+            fontFamily: "'Instrument Sans', system-ui, sans-serif",
             cursor: 'pointer',
           }}
         >
@@ -108,7 +108,7 @@ export default function ShareGenerator({ currency, monthlyHit, monthlyHitPct, cr
             background: COLORS.gold,
             color: COLORS.dark,
             fontSize: 13,
-            fontFamily: 'Inter, sans-serif',
+            fontFamily: "'Instrument Sans', system-ui, sans-serif",
             fontWeight: 'bold',
             cursor: 'pointer',
           }}
