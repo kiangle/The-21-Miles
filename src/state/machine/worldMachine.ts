@@ -234,6 +234,9 @@ export const worldMachine = createMachine({
     SET_TIME: {
       actions: assign({ time: ({ event }) => event.time }),
     },
+    SET_FUTURE: {
+      actions: assign({ future: ({ event }) => event.future }),
+    },
     SWITCH_PERSPECTIVE: {
       actions: assign({
         roleId: ({ context }) => context.roleId === 'nurse' ? 'driver' : 'nurse',

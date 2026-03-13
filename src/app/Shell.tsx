@@ -410,27 +410,27 @@ export default function Shell({
         </div>
       )}
 
-      {/* MapLibre + deck.gl Landing Stage — below overlays, no pointer capture until visible */}
-      <div style={{ pointerEvents: stageVisible ? 'auto' : 'none' }}>
-        <MapRoot
-          visible={stageVisible}
-          bootstrap={bootstrap}
-          countryId="kenya"
-          ruptured={scene === 'rupture' || scene === 'detour' || scene === 'cascade' || scene === 'yourMonth' || scene === 'whatNext' || scene === 'split'}
-        />
-      </div>
+      {/* MapLibre + deck.gl Landing Stage — below overlays, pointer-events: none to not block tray */}
+      <MapRoot
+        visible={stageVisible}
+        bootstrap={bootstrap}
+        countryId="kenya"
+        ruptured={scene === 'rupture' || scene === 'detour' || scene === 'cascade' || scene === 'yourMonth' || scene === 'whatNext' || scene === 'split'}
+        lens={lens}
+      />
 
-      {/* Pixi Stage — 2D living world (layered on top of map), no pointer capture */}
-      <div style={{ pointerEvents: 'none' }}>
-        <PixiStage
-          scene={scene}
-          lens={lens}
-          compareMode={compareMode}
-          supplyLevel={worldMetrics.medicinePressure}
-          erosionPct={householdImpact ? householdImpact.pct_of_income.base : 0}
-          visible={stageVisible}
-        />
-      </div>
+      {/* Pixi Stage — 2D living world. Receives time/future/roleId so tray controls change the world */}
+      <PixiStage
+        scene={scene}
+        lens={lens}
+        time={time}
+        future={future}
+        roleId={roleId}
+        compareMode={compareMode}
+        supplyLevel={worldMetrics.medicinePressure}
+        erosionPct={householdImpact ? householdImpact.pct_of_income.base : 0}
+        visible={stageVisible}
+      />
 
       {/* Story stage container for ScrollTrigger */}
       <div ref={storyStageRef} className="story-stage" style={{
@@ -454,6 +454,7 @@ export default function Shell({
         impact={householdImpact}
         visible={scene === 'yourMonth'}
         currency={householdImpact?.currency ?? 'KSh'}
+        future={future}
       />
 
       {/* Compare panel */}

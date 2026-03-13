@@ -7,12 +7,10 @@ import type { MarginRenderer } from '../../stage/renderers/MarginRenderer'
 import type { LensId } from '../../state/machine/worldContext'
 
 /**
- * MorphController — transitions between visual species.
+ * MorphController — transitions between visual species + propagates parameters.
  *
- * shipping (flow bands) → freight (congestion) → import stress (filaments)
- * → medicine (pulses) → household (margin erosion)
- *
- * GSAP morphs the visual style. The cascade MUST change form as it crosses domains.
+ * Pressure and perspective flow to ALL renderers so every tray control
+ * creates visible changes in the mounted world.
  */
 
 export interface MorphRenderers {
@@ -39,9 +37,27 @@ export class MorphController {
   }
 
   /**
-   * Morph from current visual species to the target lens.
-   * Uses GSAP for smooth transitions.
+   * Propagate pressure to all renderers.
+   * Timeline + future combine into this single value.
    */
+  setPressure(pressure: number) {
+    this.renderers.flowBands.setPressure(pressure)
+    this.renderers.congestion.setPressure(pressure)
+    this.renderers.pulses.setPressure(pressure)
+    this.renderers.margins.setPressure(pressure)
+  }
+
+  /**
+   * Propagate perspective to all renderers.
+   * "See through..." changes visual emphasis per role.
+   */
+  setPerspective(role: 'nurse' | 'driver' | null) {
+    this.renderers.flowBands.setPerspective(role)
+    this.renderers.congestion.setPerspective(role)
+    this.renderers.pulses.setPerspective(role)
+    this.renderers.margins.setPerspective(role)
+  }
+
   morphTo(targetLens: LensId, duration = 1.5): Promise<void> {
     if (this.transitioning || targetLens === this.currentLens) {
       return Promise.resolve()
@@ -52,7 +68,6 @@ export class MorphController {
     this.currentLens = targetLens
 
     return new Promise(resolve => {
-      // Fade out current
       const fadeOutTarget = this.getRendererForLens(from)
       const fadeInTarget = this.getRendererForLens(targetLens)
 
@@ -63,28 +78,17 @@ export class MorphController {
         },
       })
 
-      // Fade out current species
       tl.to({}, {
         duration: duration * 0.4,
-        onComplete: () => {
-          fadeOutTarget.setVisible(false)
-        },
+        onComplete: () => fadeOutTarget.setVisible(false),
       })
 
-      // Fade in new species
-      tl.call(() => {
-        fadeInTarget.setVisible(true)
-      })
+      tl.call(() => fadeInTarget.setVisible(true))
 
-      tl.to({}, {
-        duration: duration * 0.6,
-      })
+      tl.to({}, { duration: duration * 0.6 })
     })
   }
 
-  /**
-   * Auto-morph through the cascade sequence: shipping → freight → medicine → household
-   */
   async autoMorph(delayBetween = 2): Promise<void> {
     const startIdx = LENS_ORDER.indexOf(this.currentLens)
     for (let i = startIdx + 1; i < LENS_ORDER.length; i++) {
