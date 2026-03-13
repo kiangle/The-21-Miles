@@ -2,8 +2,10 @@ import * as THREE from 'three'
 import { GLOBE_RADIUS, COLORS } from '../app/config/constants'
 
 /**
- * Red pulse at Hormuz when the strait closes.
- * Visible from opening camera — large glow + expanding rings + sprite halo.
+ * Rupture effect at Hormuz — coherent pressure pulse, not fireworks.
+ *
+ * A hotspot glow + one expanding ring + nearby flow suppression.
+ * Reads as a strategic blockage, not an explosion.
  */
 
 function latLngToVec3(lat: number, lng: number, radius: number): THREE.Vector3 {
@@ -14,6 +16,26 @@ function latLngToVec3(lat: number, lng: number, radius: number): THREE.Vector3 {
     radius * Math.cos(phi),
     radius * Math.sin(phi) * Math.sin(theta),
   )
+}
+
+// Canvas-generated circular glow for the rupture halo
+function createRuptureGlowTexture(): THREE.CanvasTexture {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  gradient.addColorStop(0, 'rgba(255,80,40,1)')
+  gradient.addColorStop(0.15, 'rgba(255,60,30,0.7)')
+  gradient.addColorStop(0.4, 'rgba(200,30,10,0.25)')
+  gradient.addColorStop(0.7, 'rgba(180,20,0,0.08)')
+  gradient.addColorStop(1, 'rgba(150,10,0,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
 }
 
 export interface RuptureEffectSystem {
@@ -27,10 +49,9 @@ export interface RuptureEffectSystem {
 export function createRuptureEffect(): RuptureEffectSystem {
   const group = new THREE.Group()
   const hormuzPos = latLngToVec3(26.5, 56.3, GLOBE_RADIUS + 0.05)
-  const hormuzNormal = hormuzPos.clone().normalize()
 
-  // Core glow sphere — larger than before
-  const glowGeo = new THREE.SphereGeometry(0.15, 16, 16)
+  // Core glow sphere — the hotspot
+  const glowGeo = new THREE.SphereGeometry(0.12, 16, 16)
   const glowMat = new THREE.MeshBasicMaterial({
     color: COLORS.rupture,
     transparent: true,
@@ -42,9 +63,11 @@ export function createRuptureEffect(): RuptureEffectSystem {
   glow.position.copy(hormuzPos)
   group.add(glow)
 
-  // Halo sprite for bloom-like aura
+  // Circular halo sprite with canvas texture (replaces square sprite)
+  const ruptureGlowTex = createRuptureGlowTexture()
   const spriteMat = new THREE.SpriteMaterial({
-    color: new THREE.Color('#ff6633'),
+    map: ruptureGlowTex,
+    color: new THREE.Color('#ff4422'),
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending,
@@ -52,11 +75,11 @@ export function createRuptureEffect(): RuptureEffectSystem {
   })
   const haloSprite = new THREE.Sprite(spriteMat)
   haloSprite.position.copy(hormuzPos)
-  haloSprite.scale.setScalar(0.5)
+  haloSprite.scale.setScalar(0.4)
   group.add(haloSprite)
 
-  // Expanding ring 1
-  const ringGeo = new THREE.TorusGeometry(0.02, 0.008, 8, 64)
+  // Single expanding ring — clean, not noisy
+  const ringGeo = new THREE.TorusGeometry(0.02, 0.006, 8, 64)
   const ringMat = new THREE.MeshBasicMaterial({
     color: COLORS.rupture,
     transparent: true,
@@ -64,17 +87,10 @@ export function createRuptureEffect(): RuptureEffectSystem {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   })
-  const ring1 = new THREE.Mesh(ringGeo, ringMat)
-  ring1.position.copy(hormuzPos)
-  ring1.lookAt(new THREE.Vector3(0, 0, 0))
-  group.add(ring1)
-
-  // Expanding ring 2 (delayed)
-  const ringMat2 = ringMat.clone()
-  const ring2 = new THREE.Mesh(ringGeo, ringMat2)
-  ring2.position.copy(hormuzPos)
-  ring2.lookAt(new THREE.Vector3(0, 0, 0))
-  group.add(ring2)
+  const ring = new THREE.Mesh(ringGeo, ringMat)
+  ring.position.copy(hormuzPos)
+  ring.lookAt(new THREE.Vector3(0, 0, 0))
+  group.add(ring)
 
   let active = false
   let elapsed = 0
@@ -89,53 +105,44 @@ export function createRuptureEffect(): RuptureEffectSystem {
 
     elapsed += delta
 
-    // Phase 1: Initial burst (0-3s)
-    if (elapsed < 3) {
-      const t = elapsed / 3
+    // Phase 1: Initial pressure build (0-2.5s)
+    if (elapsed < 2.5) {
+      const t = elapsed / 2.5
 
-      // Glow ramps up fast and grows
-      glowMat.opacity = Math.min(t * 4, 1) * 0.9
-      glow.scale.setScalar(1 + t * 1.5)
+      // Glow ramps up smoothly
+      glowMat.opacity = Math.min(t * 2, 1) * 0.85
+      glow.scale.setScalar(1 + t * 0.8)
 
-      // Halo grows
-      spriteMat.opacity = Math.min(t * 3, 0.7)
-      haloSprite.scale.setScalar(0.5 + t * 2)
+      // Halo expands gently
+      spriteMat.opacity = Math.min(t * 1.5, 0.6)
+      haloSprite.scale.setScalar(0.4 + t * 1.2)
 
-      // Ring 1 expands
-      const ringScale = 1 + t * 100
-      ring1.scale.setScalar(ringScale)
-      ringMat.opacity = Math.max(0.8 - t * 0.4, 0)
-
-      // Ring 2 (delayed by 0.5s)
-      if (elapsed > 0.5) {
-        const t2 = (elapsed - 0.5) / 2.5
-        ring2.scale.setScalar(1 + t2 * 80)
-        ringMat2.opacity = Math.max(0.6 - t2 * 0.4, 0)
-      }
+      // Ring expands outward, fading
+      const ringScale = 1 + t * 60
+      ring.scale.setScalar(ringScale)
+      ringMat.opacity = Math.max(0.7 - t * 0.35, 0)
     } else {
-      // Phase 2: Persistent pulsing
-      const pulse = 0.5 + 0.4 * Math.sin(elapsed * 3)
-      const pulse2 = 0.3 + 0.2 * Math.sin(elapsed * 2.1 + 1)
+      // Phase 2: Persistent steady pulse — the blockage is ongoing
+      const pulse = 0.55 + 0.25 * Math.sin(elapsed * 2.0)
 
       glowMat.opacity = pulse
-      glow.scale.setScalar(1.5 + 0.3 * Math.sin(elapsed * 3))
+      glow.scale.setScalar(1.4 + 0.15 * Math.sin(elapsed * 2.0))
 
-      spriteMat.opacity = pulse2
-      haloSprite.scale.setScalar(1.5 + 0.5 * Math.sin(elapsed * 1.8))
+      spriteMat.opacity = pulse * 0.5
+      haloSprite.scale.setScalar(1.3 + 0.2 * Math.sin(elapsed * 1.5))
 
-      // Rings fade out after initial burst
-      ringMat.opacity = 0
-      ringMat2.opacity = 0
+      // Ring fades out completely after initial burst
+      ringMat.opacity = Math.max(ringMat.opacity - delta * 0.5, 0)
     }
   }
 
   function dispose() {
     glowGeo.dispose()
     glowMat.dispose()
+    ruptureGlowTex.dispose()
     spriteMat.dispose()
     ringGeo.dispose()
     ringMat.dispose()
-    ringMat2.dispose()
   }
 
   return {

@@ -318,23 +318,33 @@ export default function Shell({
       {/* Entry text — Instrument Serif for title, Instrument Sans for prompt */}
       {entryText && (
         <div style={{
-          position: 'absolute', top: '50%', left: '50%',
+          position: 'absolute', top: '42%', left: '50%',
           transform: 'translate(-50%, -50%)', zIndex: 10,
           textAlign: 'center', animation: 'fadeIn 1.5s ease',
+          pointerEvents: 'none',
         }}>
           <h1 style={{
             color: COLORS.textPrimary, fontSize: 48, fontWeight: 400,
             letterSpacing: 4, margin: 0,
             fontFamily: "'Instrument Serif', Georgia, serif",
+            textShadow: '0 2px 20px rgba(10,10,18,0.8)',
           }}>
             21 miles
           </h1>
           <p style={{
-            color: COLORS.textSecondary, fontSize: 18, marginTop: 16,
+            color: COLORS.textSecondary, fontSize: 16, marginTop: 12,
             letterSpacing: 1,
             fontFamily: "'Instrument Sans', system-ui, sans-serif",
           }}>
-            Where do you live?
+            A distant channel is already inside your month.
+          </p>
+          <p style={{
+            color: COLORS.gold, fontSize: 14, marginTop: 24,
+            letterSpacing: 0.5, opacity: 0.9,
+            fontFamily: "'Instrument Sans', system-ui, sans-serif",
+            animation: 'fadeIn 2s ease 0.5s both',
+          }}>
+            Start in Kenya
           </p>
         </div>
       )}
@@ -342,9 +352,11 @@ export default function Shell({
       {/* Role selection — driven by bootstrap roles */}
       {showRoleSelect && (
         <div style={{
-          position: 'absolute', top: '50%', left: '50%',
-          transform: 'translate(-50%, -50%)', zIndex: 15,
-          display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center',
+          position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+          zIndex: 15, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 16,
+          background: 'rgba(10, 10, 18, 0.5)',
+          animation: 'fadeIn 0.8s ease',
         }}>
           <p style={{
             color: COLORS.textSecondary, fontSize: 14, margin: 0,
@@ -398,23 +410,27 @@ export default function Shell({
         </div>
       )}
 
-      {/* MapLibre + deck.gl Landing Stage */}
-      <MapRoot
-        visible={stageVisible}
-        bootstrap={bootstrap}
-        countryId="kenya"
-        ruptured={scene === 'rupture' || scene === 'detour' || scene === 'cascade' || scene === 'yourMonth' || scene === 'whatNext' || scene === 'split'}
-      />
+      {/* MapLibre + deck.gl Landing Stage — below overlays, no pointer capture until visible */}
+      <div style={{ pointerEvents: stageVisible ? 'auto' : 'none' }}>
+        <MapRoot
+          visible={stageVisible}
+          bootstrap={bootstrap}
+          countryId="kenya"
+          ruptured={scene === 'rupture' || scene === 'detour' || scene === 'cascade' || scene === 'yourMonth' || scene === 'whatNext' || scene === 'split'}
+        />
+      </div>
 
-      {/* Pixi Stage — 2D living world (layered on top of map) */}
-      <PixiStage
-        scene={scene}
-        lens={lens}
-        compareMode={compareMode}
-        supplyLevel={worldMetrics.medicinePressure}
-        erosionPct={householdImpact ? householdImpact.pct_of_income.base : 0}
-        visible={stageVisible}
-      />
+      {/* Pixi Stage — 2D living world (layered on top of map), no pointer capture */}
+      <div style={{ pointerEvents: 'none' }}>
+        <PixiStage
+          scene={scene}
+          lens={lens}
+          compareMode={compareMode}
+          supplyLevel={worldMetrics.medicinePressure}
+          erosionPct={householdImpact ? householdImpact.pct_of_income.base : 0}
+          visible={stageVisible}
+        />
+      </div>
 
       {/* Story stage container for ScrollTrigger */}
       <div ref={storyStageRef} className="story-stage" style={{

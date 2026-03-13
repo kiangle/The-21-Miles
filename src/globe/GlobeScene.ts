@@ -6,9 +6,9 @@ import { createRuptureEffect, type RuptureEffectSystem } from './RuptureEffect'
 /**
  * GlobeScene — The opening. Earth from space.
  *
- * Procedural Earth with continent silhouettes, atmosphere rim shader,
- * dense starfield, luminous shipping particles, Hormuz rupture pulse,
- * and country markers driven by Atlas bootstrap data.
+ * Procedural Earth with subtle coastline outlines (no filled patches),
+ * atmosphere rim shader, dense starfield, luminous shipping particles,
+ * Hormuz rupture pulse, and country markers with canvas glow textures.
  */
 
 export function latLngToVec3(lat: number, lng: number, radius: number): THREE.Vector3 {
@@ -27,6 +27,7 @@ export interface CountryMarker {
   position: THREE.Vector3
   mesh: THREE.Mesh
   sprite: THREE.Sprite
+  hitMesh: THREE.Mesh // larger invisible hit area
 }
 
 export interface GlobeSceneAPI {
@@ -135,6 +136,7 @@ function createLandmasses(scene: THREE.Scene, radius: number) {
   const landRadius = radius * 1.002
 
   CONTINENT_OUTLINES.forEach(continent => {
+    // Smoothed coastline outline only — no filled patches
     const linePoints: THREE.Vector3[] = continent.points.map(([lat, lng]) =>
       latLngToVec3(lat, lng, landRadius)
     )
@@ -146,60 +148,39 @@ function createLandmasses(scene: THREE.Scene, radius: number) {
     const lineMat = new THREE.LineBasicMaterial({
       color: 0x3a5a7a,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.45,
     })
     const line = new THREE.Line(lineGeo, lineMat)
     landGroup.add(line)
-
-    // Semi-transparent filled patches via triangle fan from centroid
-    if (continent.points.length > 4) {
-      const center = new THREE.Vector3(0, 0, 0)
-      for (const [lat, lng] of continent.points) {
-        center.add(latLngToVec3(lat, lng, landRadius))
-      }
-      center.divideScalar(continent.points.length)
-      center.normalize().multiplyScalar(landRadius)
-
-      const vertices: number[] = []
-      for (let i = 0; i < continent.points.length - 1; i++) {
-        const p0 = latLngToVec3(continent.points[i][0], continent.points[i][1], landRadius)
-        const p1 = latLngToVec3(continent.points[i + 1][0], continent.points[i + 1][1], landRadius)
-        vertices.push(center.x, center.y, center.z)
-        vertices.push(p0.x, p0.y, p0.z)
-        vertices.push(p1.x, p1.y, p1.z)
-      }
-      const last = continent.points[continent.points.length - 1]
-      const first = continent.points[0]
-      const pLast = latLngToVec3(last[0], last[1], landRadius)
-      const pFirst = latLngToVec3(first[0], first[1], landRadius)
-      vertices.push(center.x, center.y, center.z)
-      vertices.push(pLast.x, pLast.y, pLast.z)
-      vertices.push(pFirst.x, pFirst.y, pFirst.z)
-
-      const patchGeo = new THREE.BufferGeometry()
-      patchGeo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
-      patchGeo.computeVertexNormals()
-
-      const patchMat = new THREE.MeshBasicMaterial({
-        color: 0x1a2a3a,
-        transparent: true,
-        opacity: 0.4,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      })
-      landGroup.add(new THREE.Mesh(patchGeo, patchMat))
-    }
   })
 
   scene.add(landGroup)
   return landGroup
 }
 
+// Canvas-generated circular glow texture for marker halos
+function createGlowTexture(): THREE.CanvasTexture {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  gradient.addColorStop(0, 'rgba(255,220,160,1)')
+  gradient.addColorStop(0.2, 'rgba(255,210,140,0.6)')
+  gradient.addColorStop(0.5, 'rgba(255,200,120,0.2)')
+  gradient.addColorStop(1, 'rgba(255,200,120,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
 export function createGlobeScene(): GlobeSceneAPI {
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(COLORS.dark)
 
-  // Camera positioned to show Africa/Middle East/Indian Ocean trade context
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200)
   const camPos = latLngToVec3(10, 50, CAMERA_DISTANCE_SPACE)
   camera.position.copy(camPos)
@@ -241,7 +222,7 @@ export function createGlobeScene(): GlobeSceneAPI {
     earthMat.color.set(0xffffff)
     earthMat.needsUpdate = true
     landGroup.visible = false
-  }, undefined, () => { /* keep procedural */ })
+  }, undefined, () => { /* keep procedural coastlines */ })
 
   const earth = new THREE.Mesh(earthGeo, earthMat)
   scene.add(earth)
@@ -343,6 +324,9 @@ export function createGlobeScene(): GlobeSceneAPI {
 
   let ruptured = false
 
+  // ── Shared glow texture for all marker sprites ──
+  const glowTexture = createGlowTexture()
+
   // ── Country markers ──
   const markers: CountryMarker[] = []
   let markersVisible = false
@@ -358,11 +342,13 @@ export function createGlobeScene(): GlobeSceneAPI {
   ]
 
   function addMarker(c: { id: string; label: string; lat: number; lng: number }) {
+    const isKenya = c.id === 'kenya'
     const pos = latLngToVec3(c.lat, c.lng, GLOBE_RADIUS + 0.08)
 
-    const markerGeo = new THREE.SphereGeometry(0.1, 16, 16)
+    // Visible dot — larger for Kenya
+    const markerGeo = new THREE.SphereGeometry(isKenya ? 0.14 : 0.06, 16, 16)
     const markerMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(COLORS.gold),
+      color: new THREE.Color(isKenya ? COLORS.gold : '#667788'),
       transparent: true,
       opacity: 0,
       blending: THREE.AdditiveBlending,
@@ -372,18 +358,29 @@ export function createGlobeScene(): GlobeSceneAPI {
     mesh.userData = { countryId: c.id }
     scene.add(mesh)
 
+    // Circular glow halo sprite with canvas texture
     const spriteMat = new THREE.SpriteMaterial({
-      color: new THREE.Color(COLORS.gold),
+      map: glowTexture,
+      color: new THREE.Color(isKenya ? COLORS.gold : '#556677'),
       transparent: true,
       opacity: 0,
       blending: THREE.AdditiveBlending,
+      depthWrite: false,
     })
     const sprite = new THREE.Sprite(spriteMat)
     sprite.position.copy(pos)
-    sprite.scale.setScalar(0.5)
+    sprite.scale.setScalar(isKenya ? 0.7 : 0.3)
     scene.add(sprite)
 
-    markers.push({ id: c.id, label: c.label, position: pos, mesh, sprite })
+    // Invisible larger hit sphere for easier clicking (especially Kenya)
+    const hitGeo = new THREE.SphereGeometry(isKenya ? 0.5 : 0.2, 8, 8)
+    const hitMat = new THREE.MeshBasicMaterial({ visible: false })
+    const hitMesh = new THREE.Mesh(hitGeo, hitMat)
+    hitMesh.position.copy(pos)
+    hitMesh.userData = { countryId: c.id }
+    scene.add(hitMesh)
+
+    markers.push({ id: c.id, label: c.label, position: pos, mesh, sprite, hitMesh })
   }
 
   fallbackCountries.forEach(addMarker)
@@ -420,6 +417,7 @@ export function createGlobeScene(): GlobeSceneAPI {
     if (markersVisible) {
       markersElapsed += delta
       markers.forEach((m, i) => {
+        const isKenya = m.id === 'kenya'
         const mat = m.mesh.material as THREE.MeshBasicMaterial
         const sMat = m.sprite.material as THREE.SpriteMaterial
 
@@ -429,13 +427,22 @@ export function createGlobeScene(): GlobeSceneAPI {
         const facing = -markerDir.dot(cameraToMarker)
         const facingFactor = Math.max(0, Math.pow(Math.max(facing, 0), 0.5))
 
-        const pulse = 0.5 + 0.5 * Math.sin(markersElapsed * 2.5 + i * 1.4)
-        const opacity = pulse * facingFactor * globalOpacity
-
-        mat.opacity = opacity * 0.9
-        sMat.opacity = opacity * 0.5
-        m.mesh.scale.setScalar(0.8 + pulse * 0.4)
-        m.sprite.scale.setScalar(0.4 + pulse * 0.3)
+        if (isKenya) {
+          // Kenya: bright pulsing, always prominent when facing
+          const pulse = 0.7 + 0.3 * Math.sin(markersElapsed * 2.5 + i * 1.4)
+          const opacity = pulse * facingFactor * globalOpacity
+          mat.opacity = opacity
+          sMat.opacity = opacity * 0.8
+          m.mesh.scale.setScalar(1.0 + 0.3 * Math.sin(markersElapsed * 2.5 + i * 1.4))
+          m.sprite.scale.setScalar(0.7 + 0.3 * Math.sin(markersElapsed * 1.8))
+        } else {
+          // Others: dim, small, clearly secondary
+          const opacity = 0.25 * facingFactor * globalOpacity
+          mat.opacity = opacity
+          sMat.opacity = opacity * 0.3
+          m.mesh.scale.setScalar(0.8)
+          m.sprite.scale.setScalar(0.3)
+        }
       })
     }
 
@@ -470,8 +477,11 @@ export function createGlobeScene(): GlobeSceneAPI {
     markers.forEach(m => {
       scene.remove(m.mesh)
       scene.remove(m.sprite)
+      scene.remove(m.hitMesh)
       m.mesh.geometry.dispose();
-      (m.mesh.material as THREE.MeshBasicMaterial).dispose();
+      (m.mesh.material as THREE.MeshBasicMaterial).dispose()
+      m.hitMesh.geometry.dispose();
+      (m.hitMesh.material as THREE.MeshBasicMaterial).dispose();
       (m.sprite.material as THREE.SpriteMaterial).dispose()
     })
     markers.length = 0
@@ -484,11 +494,12 @@ export function createGlobeScene(): GlobeSceneAPI {
     mouse.y = -((screenY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(mouse, camera)
 
-    const meshes = markers.map(m => m.mesh)
-    const intersects = raycaster.intersectObjects(meshes)
+    // Raycast against both visible meshes and invisible hit meshes
+    const allHittable = markers.flatMap(m => [m.mesh, m.hitMesh])
+    const intersects = raycaster.intersectObjects(allHittable)
     if (intersects.length > 0) {
-      const hit = intersects[0].object
-      return markers.find(m => m.mesh === hit) ?? null
+      const hitId = intersects[0].object.userData.countryId
+      return markers.find(m => m.id === hitId) ?? null
     }
     return null
   }
@@ -514,9 +525,12 @@ export function createGlobeScene(): GlobeSceneAPI {
     atmosMat2.dispose()
     starGeo.dispose()
     starMat.dispose()
+    glowTexture.dispose()
     markers.forEach(m => {
       m.mesh.geometry.dispose();
-      (m.mesh.material as THREE.MeshBasicMaterial).dispose();
+      (m.mesh.material as THREE.MeshBasicMaterial).dispose()
+      m.hitMesh.geometry.dispose();
+      (m.hitMesh.material as THREE.MeshBasicMaterial).dispose();
       (m.sprite.material as THREE.SpriteMaterial).dispose()
     })
     renderer.dispose()
