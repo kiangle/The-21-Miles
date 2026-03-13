@@ -2,6 +2,7 @@ import React, { useCallback } from 'react'
 import { useWorldMachine } from '../state/hooks/useWorldMachine'
 import { StageProvider } from './providers/StageProvider'
 import Shell from './Shell'
+import BuildID from './BuildID'
 import type { LiveParameters } from '../atlas/types'
 
 /**
@@ -21,6 +22,7 @@ export default function App() {
 
   return (
     <StageProvider onLiveParams={handleLiveParams}>
+      <BuildID />
       <Shell
         send={send}
         scene={ctx.scene}
