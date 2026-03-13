@@ -3,8 +3,9 @@ import { GLOBE_RADIUS, COLORS, SHIPPING_PARTICLE_COUNT, SHIPPING_PARTICLE_COUNT_
 
 /**
  * Shipping lane particles flowing on the globe surface.
- * 3000 warm gold particles, size 0.08, clearly above the sphere,
- * with additive blending for luminous trade arteries.
+ *
+ * Warm gold particles with lateral jitter so they read as
+ * soft flowing trade currents, not segmented debug polylines.
  */
 
 const ROUTES = {
@@ -80,6 +81,25 @@ function interpolateRoute(
   return p0.clone().lerp(p1, localT).normalize().multiplyScalar(radius)
 }
 
+// Generate a soft circular particle texture so particles are dots, not squares
+function createParticleTexture(): THREE.CanvasTexture {
+  const size = 32
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  gradient.addColorStop(0, 'rgba(255,255,255,1)')
+  gradient.addColorStop(0.3, 'rgba(255,255,255,0.6)')
+  gradient.addColorStop(0.7, 'rgba(255,255,255,0.15)')
+  gradient.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
 export interface ShippingParticleSystem {
   points: THREE.Points
   update: (delta: number, ruptured: boolean) => void
@@ -89,19 +109,22 @@ export interface ShippingParticleSystem {
 export function createShippingParticles(): ShippingParticleSystem {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   const count = isMobile ? SHIPPING_PARTICLE_COUNT_MOBILE : SHIPPING_PARTICLE_COUNT
-  const radius = GLOBE_RADIUS + 0.06 // clearly above surface
+  const radius = GLOBE_RADIUS + 0.04
 
   const routeEntries = Object.entries(ROUTES)
   const particlesPerRoute = Math.floor(count / routeEntries.length)
 
   const positions = new Float32Array(count * 3)
   const colors = new Float32Array(count * 3)
+  const sizes = new Float32Array(count)
   const routeIndices = new Int32Array(count)
   const progresses = new Float32Array(count)
   const speeds = new Float32Array(count)
+  const lateralOffsets = new Float32Array(count)
   const ruptureStates = new Float32Array(count)
 
-  const baseColor = new THREE.Color('#f4e8c1') // warm gold — high contrast
+  const baseColor = new THREE.Color('#f4e8c1')
+  const dimColor = new THREE.Color('#c8b898')
   const ruptureColor = new THREE.Color(COLORS.rupture)
 
   let idx = 0
@@ -117,13 +140,20 @@ export function createShippingParticles(): ShippingParticleSystem {
       positions[idx * 3 + 1] = pos.y
       positions[idx * 3 + 2] = pos.z
 
-      colors[idx * 3] = baseColor.r
-      colors[idx * 3 + 1] = baseColor.g
-      colors[idx * 3 + 2] = baseColor.b
+      // Vary color slightly for organic feel
+      const blend = Math.random()
+      const c = blend > 0.5 ? baseColor : dimColor
+      colors[idx * 3] = c.r
+      colors[idx * 3 + 1] = c.g
+      colors[idx * 3 + 2] = c.b
+
+      // Vary sizes for depth
+      sizes[idx] = 0.04 + Math.random() * 0.04
 
       routeIndices[idx] = r
       progresses[idx] = t
-      speeds[idx] = 0.0003 + Math.random() * 0.0004
+      speeds[idx] = 0.0002 + Math.random() * 0.0005
+      lateralOffsets[idx] = (Math.random() - 0.5) * 0.08 // spread perpendicular to route
       ruptureStates[idx] = 0
     }
   }
@@ -131,12 +161,16 @@ export function createShippingParticles(): ShippingParticleSystem {
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
+
+  const particleTex = createParticleTexture()
 
   const material = new THREE.PointsMaterial({
-    size: 0.08,                // 2.6x larger than before — readable from distance 18
+    size: 0.06,
+    map: particleTex,
     vertexColors: true,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.85,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     sizeAttenuation: true,
@@ -170,7 +204,7 @@ export function createShippingParticles(): ShippingParticleSystem {
         if (distToHormuz < 2.0) {
           ruptureStates[i] = Math.min(ruptureStates[i] + delta * 2, 1)
           speeds[i] *= 0.95
-          const jitter = 0.002
+          const jitter = 0.001
           posAttr.setXYZ(i,
             currentPos.x + (Math.random() - 0.5) * jitter,
             currentPos.y + (Math.random() - 0.5) * jitter,
@@ -181,6 +215,11 @@ export function createShippingParticles(): ShippingParticleSystem {
           progresses[i] += speeds[i] * 0.3 * delta * 60
           if (progresses[i] > 1) progresses[i] = 0
           const newPos = interpolateRoute(routeWaypoints, progresses[i], radius)
+          // Apply lateral offset for soft lane width
+          const normal = newPos.clone().normalize()
+          const tangent = new THREE.Vector3(-normal.z, 0, normal.x).normalize()
+          newPos.addScaledVector(tangent, lateralOffsets[i])
+          newPos.normalize().multiplyScalar(radius)
           posAttr.setXYZ(i, newPos.x, newPos.y, newPos.z)
         }
 
@@ -196,6 +235,11 @@ export function createShippingParticles(): ShippingParticleSystem {
         if (progresses[i] < 0) progresses[i] += 1
 
         const newPos = interpolateRoute(routeWaypoints, progresses[i], radius)
+        // Apply lateral offset
+        const normal = newPos.clone().normalize()
+        const tangent = new THREE.Vector3(-normal.z, 0, normal.x).normalize()
+        newPos.addScaledVector(tangent, lateralOffsets[i])
+        newPos.normalize().multiplyScalar(radius)
         posAttr.setXYZ(i, newPos.x, newPos.y, newPos.z)
 
         if (ruptureStates[i] > 0) {
@@ -217,6 +261,7 @@ export function createShippingParticles(): ShippingParticleSystem {
   function dispose() {
     geometry.dispose()
     material.dispose()
+    particleTex.dispose()
   }
 
   return { points, update, dispose }
