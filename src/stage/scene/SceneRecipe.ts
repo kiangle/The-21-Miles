@@ -4,36 +4,34 @@
  * A recipe tells every system what to do:
  * - MapLibre camera focus
  * - Which Pixi/Matter layers are alive
- * - What emitter pattern runs
- * - What constraint mode applies
+ * - What actor/emitter/constraint modes apply
  * - What narrative beat is active
  *
  * Nothing else decides what's visible. Only the active recipe.
  */
 
-export type MapFocus = 'world' | 'kenya' | 'mombasa' | 'nairobi' | 'corridor'
-export type LensType = 'shipping' | 'freight' | 'medicine' | 'household'
-export type Perspective = 'amara' | 'joseph'
+export type MapFocus = 'world' | 'kenya' | 'corridor' | 'mombasa' | 'nairobi'
+export type LensType = 'shipping' | 'freight' | 'medicine' | 'month'
+export type Perspective = 'amara' | 'joseph' | null
 export type TimeSlice = 'day1' | 'day3' | 'week1' | 'month1'
-export type ActiveActorMode = 'ships' | 'convoys' | 'medicine' | 'chamber' | 'none'
-export type EmitterMode = 'steady' | 'bursts' | 'sparse' | 'off'
-export type ConstraintMode = 'lane' | 'corridor' | 'pulse' | 'chamber' | 'none'
+export type ActorMode = 'none' | 'ships' | 'convoys' | 'medicine' | 'chamber'
+export type EmitterMode = 'off' | 'steady' | 'bursts' | 'sparse'
+export type ConstraintMode = 'none' | 'lane' | 'corridor' | 'pulse' | 'chamber'
 
 export interface SceneRecipe {
   id: string
   phase: 'globe' | 'landed'
   mapFocus: MapFocus
   lens: LensType
-  perspective: Perspective | null
+  perspective: Perspective
   time: TimeSlice
+  narrativeBeatId: string
   visibleLayers: string[]
-  activeActorMode: ActiveActorMode
+  actorMode: ActorMode
   emitterMode: EmitterMode
   constraintMode: ConstraintMode
   shelfLevel?: number
   chamberPressure?: number
-  narrativeBeatId: string
-  /** Pressure value 0–1.5 applied to physics systems */
   pressure: number
 }
 
@@ -44,15 +42,14 @@ export const MAP_FOCUS_PRESETS: Record<MapFocus, {
   pitch: number
   bearing: number
 }> = {
-  world:    { center: [40, 10],       zoom: 1.5,  pitch: 0,  bearing: 0 },
-  kenya:    { center: [37.5, -1.0],   zoom: 5.5,  pitch: 0,  bearing: 0 },
-  mombasa:  { center: [39.67, -4.05], zoom: 9,    pitch: 30, bearing: 0 },
-  nairobi:  { center: [36.82, -1.29], zoom: 9,    pitch: 30, bearing: 0 },
-  corridor: { center: [38.2, -2.5],   zoom: 6.5,  pitch: 15, bearing: 0 },
+  world:    { center: [42, 15],        zoom: 1.8,  pitch: 0,   bearing: 0 },
+  kenya:    { center: [37.6, -1.4],    zoom: 4.8,  pitch: 10,  bearing: 0 },
+  corridor: { center: [38.2, -2.5],    zoom: 6.6,  pitch: 20,  bearing: -12 },
+  mombasa:  { center: [39.67, -4.05],  zoom: 8.5,  pitch: 30,  bearing: -10 },
+  nairobi:  { center: [36.82, -1.29],  zoom: 8.7,  pitch: 30,  bearing: 10 },
 }
 
 // ── Recipe catalog ──
-
 export const RECIPES: Record<string, SceneRecipe> = {
   globe_context: {
     id: 'globe_context',
@@ -61,43 +58,43 @@ export const RECIPES: Record<string, SceneRecipe> = {
     lens: 'shipping',
     perspective: null,
     time: 'day1',
-    visibleLayers: ['routes', 'chokepoints'],
-    activeActorMode: 'none',
+    narrativeBeatId: '',
+    visibleLayers: ['earth', 'routes', 'chokepoints', 'countryMarkers'],
+    actorMode: 'none',
     emitterMode: 'off',
     constraintMode: 'none',
-    narrativeBeatId: '',
     pressure: 0,
   },
 
-  kenya_entry: {
-    id: 'kenya_entry',
+  kenya_focus: {
+    id: 'kenya_focus',
     phase: 'globe',
     mapFocus: 'kenya',
     lens: 'shipping',
     perspective: null,
     time: 'day1',
-    visibleLayers: ['routes', 'chokepoints', 'kenya_border'],
-    activeActorMode: 'none',
+    narrativeBeatId: '',
+    visibleLayers: ['earth', 'routes', 'chokepoints', 'countryMarkers', 'kenyaBorder'],
+    actorMode: 'none',
     emitterMode: 'off',
     constraintMode: 'none',
-    narrativeBeatId: '',
     pressure: 0.1,
   },
 
   amara_medicine_day1: {
     id: 'amara_medicine_day1',
     phase: 'landed',
-    mapFocus: 'corridor',
+    mapFocus: 'nairobi',
     lens: 'medicine',
     perspective: 'amara',
     time: 'day1',
-    visibleLayers: ['corridor', 'pulses'],
-    activeActorMode: 'medicine',
+    narrativeBeatId: 'nurse_intro',
+    visibleLayers: ['basemap', 'corridorGhost', 'medicineLine', 'shelf'],
+    actorMode: 'medicine',
     emitterMode: 'steady',
     constraintMode: 'pulse',
-    shelfLevel: 1.0,
-    narrativeBeatId: 'nurse_intro',
-    pressure: 0.2,
+    shelfLevel: 1,
+    pressure: 0.12,
   },
 
   amara_medicine_week1: {
@@ -107,12 +104,12 @@ export const RECIPES: Record<string, SceneRecipe> = {
     lens: 'medicine',
     perspective: 'amara',
     time: 'week1',
-    visibleLayers: ['corridor', 'pulses'],
-    activeActorMode: 'medicine',
+    narrativeBeatId: 'medicine_path',
+    visibleLayers: ['basemap', 'corridorGhost', 'medicineLine', 'shelf'],
+    actorMode: 'medicine',
     emitterMode: 'sparse',
     constraintMode: 'pulse',
     shelfLevel: 0.4,
-    narrativeBeatId: 'medicine_path',
     pressure: 0.7,
   },
 
@@ -123,27 +120,12 @@ export const RECIPES: Record<string, SceneRecipe> = {
     lens: 'freight',
     perspective: 'joseph',
     time: 'day1',
-    visibleLayers: ['corridor', 'congestion'],
-    activeActorMode: 'convoys',
+    narrativeBeatId: 'driver_intro',
+    visibleLayers: ['basemap', 'corridor', 'depot', 'convoys'],
+    actorMode: 'convoys',
     emitterMode: 'steady',
     constraintMode: 'corridor',
-    narrativeBeatId: 'driver_intro',
     pressure: 0.2,
-  },
-
-  joseph_freight_day3: {
-    id: 'joseph_freight_day3',
-    phase: 'landed',
-    mapFocus: 'corridor',
-    lens: 'freight',
-    perspective: 'joseph',
-    time: 'day3',
-    visibleLayers: ['corridor', 'congestion'],
-    activeActorMode: 'convoys',
-    emitterMode: 'bursts',
-    constraintMode: 'corridor',
-    narrativeBeatId: 'exposure',
-    pressure: 0.45,
   },
 
   joseph_freight_week1: {
@@ -153,76 +135,54 @@ export const RECIPES: Record<string, SceneRecipe> = {
     lens: 'freight',
     perspective: 'joseph',
     time: 'week1',
-    visibleLayers: ['corridor', 'congestion'],
-    activeActorMode: 'convoys',
+    narrativeBeatId: 'detour',
+    visibleLayers: ['basemap', 'corridor', 'depot', 'convoys'],
+    actorMode: 'convoys',
     emitterMode: 'bursts',
     constraintMode: 'corridor',
-    narrativeBeatId: 'detour',
-    pressure: 0.7,
+    pressure: 0.68,
   },
 
-  month_squeeze: {
-    id: 'month_squeeze',
+  month_squeeze_month1: {
+    id: 'month_squeeze_month1',
     phase: 'landed',
     mapFocus: 'nairobi',
-    lens: 'household',
+    lens: 'month',
     perspective: null,
     time: 'month1',
-    visibleLayers: ['chamber'],
-    activeActorMode: 'chamber',
+    narrativeBeatId: 'your_month',
+    visibleLayers: ['basemap', 'chamber'],
+    actorMode: 'chamber',
     emitterMode: 'off',
     constraintMode: 'chamber',
-    chamberPressure: 1.0,
-    narrativeBeatId: 'your_month',
-    pressure: 1.0,
-  },
-
-  rupture_global: {
-    id: 'rupture_global',
-    phase: 'landed',
-    mapFocus: 'kenya',
-    lens: 'shipping',
-    perspective: null,
-    time: 'day1',
-    visibleLayers: ['routes', 'chokepoints', 'flowBands'],
-    activeActorMode: 'ships',
-    emitterMode: 'steady',
-    constraintMode: 'lane',
-    narrativeBeatId: 'rupture',
-    pressure: 0.4,
+    chamberPressure: 1,
+    pressure: 1,
   },
 }
 
 /**
  * Resolve the best recipe for a given state combination.
- * Ink beats can override via tag RECIPE:<id>.
  */
 export function resolveRecipe(
   scene: string,
   role: 'nurse' | 'driver' | null,
   time: TimeSlice,
 ): SceneRecipe {
-  // Direct scene → recipe mapping
   if (scene === 'entry') return RECIPES.globe_context
-  if (scene === 'flyTo') return RECIPES.kenya_entry
-
-  if (scene === 'rupture') return RECIPES.rupture_global
+  if (scene === 'flyTo') return RECIPES.kenya_focus
 
   if (scene === 'yourMonth' || scene === 'whatNext' || scene === 'split') {
-    return RECIPES.month_squeeze
+    return RECIPES.month_squeeze_month1
   }
 
-  // Role + time based resolution for baseline/detour/cascade
   if (role === 'nurse') {
     if (time === 'day1' || time === 'day3') return RECIPES.amara_medicine_day1
     return RECIPES.amara_medicine_week1
   }
   if (role === 'driver') {
-    if (time === 'day1') return RECIPES.joseph_freight_day1
-    if (time === 'day3') return RECIPES.joseph_freight_day3
+    if (time === 'day1' || time === 'day3') return RECIPES.joseph_freight_day1
     return RECIPES.joseph_freight_week1
   }
 
-  // Fallback
   return RECIPES.globe_context
 }

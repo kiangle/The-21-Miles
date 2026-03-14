@@ -28,6 +28,12 @@ gsap.registerPlugin(ScrollTrigger)
  * MapLibre globe → fly-to → landed Kenya → cascade → your month.
  *
  * Three.js globe is REMOVED. MapLibre globe projection is the entry surface.
+ * No computePositions. No detached coordinate systems.
+ *
+ * State transition contract:
+ * - globe_context: app start, Earth visible, routes/chokepoints
+ * - kenya_focus: Kenya selected, camera flies to Kenya
+ * - landed_recipe: role selected, recipe-driven Pixi/Matter scene
  */
 
 interface Props {
@@ -61,9 +67,8 @@ export default function Shell({
   const [showEntryUI, setShowEntryUI] = useState(false)
   const [showRoleSelect, setShowRoleSelect] = useState(false)
   const [mapFocus, setMapFocus] = useState<MapFocus>('world')
-  const [mapReady, setMapReady] = useState(false)
 
-  // Derived state
+  // Derived: globe phase = entry or flyTo (interactive globe rotation)
   const globePhase = scene === 'entry' || scene === 'flyTo'
 
   // ── Bootstrap ──
@@ -73,47 +78,44 @@ export default function Shell({
     })
   }, [atlas, send])
 
-  // ── Entry scene: show UI after delay ──
+  // ── Entry: show UI after delay ──
   useEffect(() => {
     if (scene !== 'entry' || !bootstrap) return
-
     const timer = setTimeout(() => {
       setShowEntryUI(true)
       audio.init().then(() => audio.playRupture())
     }, 3000)
-
     return () => clearTimeout(timer)
   }, [scene, bootstrap, audio])
 
-  // ── Map ready callback ──
+  // ── Map ready ──
   const handleMapReady = useCallback(() => {
-    setMapReady(true)
+    // Map is loaded, AnchorProjector is attached
   }, [])
 
-  // ── Kenya selection from map click ──
+  // ── Kenya selection (from button OR map click) ──
   const handleSelectKenya = useCallback(() => {
     send({ type: 'SELECT_COUNTRY', countryId: 'kenya' })
   }, [send])
 
-  // ── Fly-to transition ──
+  // ── Scene transitions ──
   useEffect(() => {
-    if (scene !== 'flyTo') return
-    setShowEntryUI(false)
-    setMapFocus('kenya')
+    if (scene === 'flyTo') {
+      setShowEntryUI(false)
+      setMapFocus('kenya')
+    }
   }, [scene])
 
-  // ── Fly-to complete: show role select ──
+  // ── Fly-to complete → show role select ──
   const handleFlyToComplete = useCallback(() => {
     setStageVisible(true)
     setShowRoleSelect(true)
-    // Tighten to corridor view
     setMapFocus('corridor')
   }, [])
 
-  // ── ScrollTrigger for story progression ──
+  // ── ScrollTrigger ──
   useEffect(() => {
     if (!stageVisible || !storyStageRef.current) return
-
     const st = ScrollTrigger.create({
       trigger: storyStageRef.current,
       start: 'top top',
@@ -126,31 +128,22 @@ export default function Shell({
         let targetLens: LensId = 'shipping'
         let targetTime: TimeId = 'day1'
 
-        if (p < 0.2) {
-          zone = 'baseline'; targetLens = 'shipping'; targetTime = 'day1'
-        } else if (p < 0.4) {
-          zone = 'rupture'; targetLens = 'freight'; targetTime = 'day3'
-        } else if (p < 0.6) {
-          zone = 'detour'; targetLens = 'medicine'; targetTime = 'week1'
-        } else if (p < 0.8) {
-          zone = 'cascade'; targetLens = 'household'; targetTime = 'week1'
-        } else {
-          zone = 'yourMonth'; targetLens = 'household'; targetTime = 'month1'
-        }
+        if (p < 0.2)      { zone = 'baseline'; targetLens = 'shipping'; targetTime = 'day1' }
+        else if (p < 0.4)  { zone = 'rupture';  targetLens = 'freight';  targetTime = 'day3' }
+        else if (p < 0.6)  { zone = 'detour';   targetLens = 'medicine'; targetTime = 'week1' }
+        else if (p < 0.8)  { zone = 'cascade';  targetLens = 'household'; targetTime = 'week1' }
+        else               { zone = 'yourMonth'; targetLens = 'household'; targetTime = 'month1' }
 
         if (zone !== lastScrollZoneRef.current) {
           lastScrollZoneRef.current = zone
           send({ type: 'ADVANCE_SCENE', scene: zone as SceneId })
           send({ type: 'SET_LENS', lens: targetLens })
           send({ type: 'SET_TIME', time: targetTime })
-
-          // Update map focus based on scene
           const recipe = resolveRecipe(zone, roleId, targetTime as any)
           setMapFocus(recipe.mapFocus)
         }
       },
     })
-
     scrollTriggerRef.current = st
     return () => { st.kill(); scrollTriggerRef.current = null }
   }, [stageVisible, send, roleId])
@@ -160,6 +153,10 @@ export default function Shell({
     const profileId = role === 'nurse' ? 'exposure_kenya_nurse' : 'exposure_kenya_driver'
     send({ type: 'SELECT_ROLE', roleId: role, profileId })
     setShowRoleSelect(false)
+
+    // Update map focus based on selected role's recipe
+    const recipe = resolveRecipe('baseline', role, 'day1')
+    setMapFocus(recipe.mapFocus)
 
     const narrativePack = bootstrap?.narrative_pack || 'kenya'
     ink.load(narrativePack).then(() => {
@@ -184,17 +181,15 @@ export default function Shell({
     audio.init().then(() => audio.playAmbient())
   }, [send, ink, atlas, audio, bootstrap, liveParams])
 
-  // ── Ink choices ──
+  // ── Ink choices with recipe tags ──
   const handleInkChoice = useCallback((choiceIndex: number) => {
     ink.choose(choiceIndex)
     const beat = ink.continue()
     if (beat) {
       setInkBeat(beat)
-
       for (const tag of beat.tags) {
         if (tag.startsWith('SCENE:')) {
-          const targetScene = tag.replace('SCENE:', '').trim()
-          send({ type: 'ADVANCE_SCENE', scene: targetScene as SceneId })
+          send({ type: 'ADVANCE_SCENE', scene: tag.replace('SCENE:', '').trim() as SceneId })
         }
         if (tag.startsWith('SOUND:')) {
           const sound = tag.replace('SOUND:', '').trim()
@@ -224,11 +219,11 @@ export default function Shell({
         }
         if (tag === 'SPLIT_SCREEN: true') send({ type: 'TOGGLE_COMPARE' })
         if (tag === 'GENERATE_CLIP: true') send({ type: 'ADVANCE_SCENE', scene: 'share' })
-        // Ink → SceneRecipe mapping via RECIPE tag
+        // Ink → recipe map focus
         if (tag.startsWith('RECIPE:')) {
-          const recipeMapFocus = tag.replace('RECIPE:', '').trim()
-          if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor'].includes(recipeMapFocus)) {
-            setMapFocus(recipeMapFocus as MapFocus)
+          const focus = tag.replace('RECIPE:', '').trim()
+          if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor'].includes(focus)) {
+            setMapFocus(focus as MapFocus)
           }
         }
       }
@@ -260,25 +255,20 @@ export default function Shell({
   const roles = bootstrap?.roles?.filter(r => r.country_id === 'kenya') ?? []
 
   return (
-    <div style={{
-      position: 'relative', width: '100vw', height: '100vh',
-      overflow: 'hidden', background: COLORS.dark,
-    }}>
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: COLORS.dark }}>
       {/* MapLibre Globe + Map — the single spatial backbone */}
       <MapRoot
-        visible={true}
         bootstrap={bootstrap}
-        countryId="kenya"
-        ruptured={scene === 'rupture' || scene === 'detour' || scene === 'cascade' || scene === 'yourMonth' || scene === 'whatNext' || scene === 'split'}
         lens={lens}
         mapFocus={mapFocus}
         globePhase={globePhase}
+        ruptured={['rupture', 'detour', 'cascade', 'yourMonth', 'whatNext', 'split'].includes(scene)}
         onSelectKenya={handleSelectKenya}
         onMapReady={handleMapReady}
         onFlyToComplete={handleFlyToComplete}
       />
 
-      {/* Entry UI — title, subtitle, start button */}
+      {/* Entry UI */}
       {showEntryUI && scene === 'entry' && (
         <div style={{
           position: 'absolute', top: '42%', left: '50%',
@@ -287,23 +277,16 @@ export default function Shell({
           width: '90vw', maxWidth: 480,
         }}>
           <h1 style={{
-            color: COLORS.textPrimary,
-            fontSize: 'clamp(32px, 7vw, 48px)',
+            color: COLORS.textPrimary, fontSize: 'clamp(32px, 7vw, 48px)',
             fontWeight: 400, letterSpacing: 4, margin: 0,
             fontFamily: "'Instrument Serif', Georgia, serif",
-            textShadow: '0 2px 20px rgba(10,10,18,0.8)',
-            pointerEvents: 'none',
-          }}>
-            21 miles
-          </h1>
+            textShadow: '0 2px 20px rgba(10,10,18,0.8)', pointerEvents: 'none',
+          }}>21 miles</h1>
           <p style={{
             color: COLORS.textSecondary, fontSize: 16, marginTop: 12,
-            letterSpacing: 1,
-            fontFamily: "'Instrument Sans', system-ui, sans-serif",
+            letterSpacing: 1, fontFamily: "'Instrument Sans', system-ui, sans-serif",
             pointerEvents: 'none',
-          }}>
-            A distant channel is already inside your month.
-          </p>
+          }}>A distant channel is already inside your month.</p>
           <button
             onClick={() => send({ type: 'SELECT_COUNTRY', countryId: 'kenya' })}
             style={{
@@ -311,12 +294,9 @@ export default function Shell({
               letterSpacing: 0.5, opacity: 0.9,
               fontFamily: "'Instrument Sans', system-ui, sans-serif",
               animation: 'fadeIn 2s ease 0.5s both',
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: '8px 16px',
+              background: 'none', border: 'none', cursor: 'pointer', padding: '8px 16px',
             }}
-          >
-            Start in Kenya
-          </button>
+          >Start in Kenya</button>
         </div>
       )}
 
@@ -326,153 +306,83 @@ export default function Shell({
           position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
           zIndex: 15, display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', gap: 16,
-          background: 'rgba(10, 10, 18, 0.5)',
-          animation: 'fadeIn 0.8s ease',
+          background: 'rgba(10, 10, 18, 0.5)', animation: 'fadeIn 0.8s ease',
         }}>
-          <p style={{
-            color: COLORS.textSecondary, fontSize: 14, margin: 0,
-            fontFamily: "'Instrument Sans', system-ui, sans-serif",
-          }}>Kenya</p>
-          {roles.length > 0 ? (
-            roles.map(role => (
-              <button
-                key={role.id}
-                onClick={() => handleSelectRole(role.id as 'nurse' | 'driver')}
-                style={{
-                  padding: '14px 28px',
-                  background: 'rgba(200, 169, 110, 0.12)',
-                  border: `1px solid ${COLORS.gold}44`,
-                  borderRadius: 12, color: COLORS.gold, fontSize: 16,
-                  cursor: 'pointer', width: 280, textAlign: 'left',
-                  fontFamily: "'Instrument Sans', system-ui, sans-serif",
-                }}
-              >
-                See through {role.short_label === 'Nurse' ? "Amara's" : "Joseph's"} eyes
-                <br />
-                <span style={{ fontSize: 12, color: COLORS.textSecondary }}>{role.short_label}, {role.id === 'nurse' ? 'Nairobi' : 'Mombasa road'}</span>
-              </button>
-            ))
-          ) : (
+          <p style={{ color: COLORS.textSecondary, fontSize: 14, margin: 0, fontFamily: "'Instrument Sans', system-ui, sans-serif" }}>Kenya</p>
+          {roles.length > 0 ? roles.map(role => (
+            <button key={role.id} onClick={() => handleSelectRole(role.id as 'nurse' | 'driver')} style={{
+              padding: '14px 28px', background: 'rgba(200, 169, 110, 0.12)',
+              border: `1px solid ${COLORS.gold}44`, borderRadius: 12,
+              color: COLORS.gold, fontSize: 16, cursor: 'pointer', width: 280, textAlign: 'left',
+              fontFamily: "'Instrument Sans', system-ui, sans-serif",
+            }}>
+              See through {role.short_label === 'Nurse' ? "Amara's" : "Joseph's"} eyes<br />
+              <span style={{ fontSize: 12, color: COLORS.textSecondary }}>{role.short_label}, {role.id === 'nurse' ? 'Nairobi' : 'Mombasa road'}</span>
+            </button>
+          )) : (
             <>
               <button onClick={() => handleSelectRole('nurse')} style={{
                 padding: '14px 28px', background: 'rgba(200, 169, 110, 0.12)',
                 border: `1px solid ${COLORS.gold}44`, borderRadius: 12,
                 color: COLORS.gold, fontSize: 16, cursor: 'pointer', width: 280, textAlign: 'left',
                 fontFamily: "'Instrument Sans', system-ui, sans-serif",
-              }}>
-                See through Amara's eyes<br />
-                <span style={{ fontSize: 12, color: COLORS.textSecondary }}>Nurse, Nairobi</span>
-              </button>
+              }}>See through Amara's eyes<br /><span style={{ fontSize: 12, color: COLORS.textSecondary }}>Nurse, Nairobi</span></button>
               <button onClick={() => handleSelectRole('driver')} style={{
                 padding: '14px 28px', background: 'rgba(200, 169, 110, 0.12)',
                 border: `1px solid ${COLORS.gold}44`, borderRadius: 12,
                 color: COLORS.gold, fontSize: 16, cursor: 'pointer', width: 280, textAlign: 'left',
                 fontFamily: "'Instrument Sans', system-ui, sans-serif",
-              }}>
-                See through Joseph's eyes<br />
-                <span style={{ fontSize: 12, color: COLORS.textSecondary }}>Truck driver, Mombasa road</span>
-              </button>
+              }}>See through Joseph's eyes<br /><span style={{ fontSize: 12, color: COLORS.textSecondary }}>Truck driver, Mombasa road</span></button>
             </>
           )}
         </div>
       )}
 
-      {/* Pixi Stage — 2D living world, now using projected anchors */}
+      {/* Pixi Stage — recipe-driven, projected anchors only */}
       <PixiStage
-        scene={scene}
-        lens={lens}
-        time={time}
-        future={future}
-        roleId={roleId}
-        compareMode={compareMode}
+        scene={scene} lens={lens} time={time} future={future}
+        roleId={roleId} compareMode={compareMode}
         supplyLevel={worldMetrics.medicinePressure}
         erosionPct={householdImpact ? householdImpact.pct_of_income.base : 0}
         visible={stageVisible}
       />
 
-      {/* Story stage container for ScrollTrigger */}
       <div ref={storyStageRef} className="story-stage" style={{
         position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
         zIndex: 0, pointerEvents: 'none',
       }} />
 
-      {/* Narrative captions */}
-      <NarrativeCaption
-        text={inkBeat?.text ?? ''}
-        choices={inkBeat?.choices ?? []}
-        onChoose={handleInkChoice}
-        visible={stageVisible && !!inkBeat?.text}
-      />
+      <NarrativeCaption text={inkBeat?.text ?? ''} choices={inkBeat?.choices ?? []}
+        onChoose={handleInkChoice} visible={stageVisible && !!inkBeat?.text} />
 
-      {/* Live data pulse */}
       <LiveDataPulse liveParams={liveParams} visible={stageVisible} />
 
-      {/* Compression chamber */}
-      <CompressionChamber
-        impact={householdImpact}
-        visible={scene === 'yourMonth'}
-        currency={householdImpact?.currency ?? 'KSh'}
-        future={future}
-      />
+      <CompressionChamber impact={householdImpact} visible={scene === 'yourMonth'}
+        currency={householdImpact?.currency ?? 'KSh'} future={future} />
 
-      {/* Compare panel */}
-      <ComparePanel
-        whatIf={whatIfResult}
-        visible={compareMode && !!whatIfResult}
-      />
+      <ComparePanel whatIf={whatIfResult} visible={compareMode && !!whatIfResult} />
 
-      {/* Connection reveals */}
-      <ConnectionReveal
-        connections={discoveredConnections}
-        visible={discoveredConnections.length > 0}
-      />
+      <ConnectionReveal connections={discoveredConnections} visible={discoveredConnections.length > 0} />
 
-      {/* Share */}
-      <ShareGenerator
-        currency={householdImpact?.currency ?? 'KSh'}
-        monthlyHit={worldMetrics.monthlyHitKsh}
-        monthlyHitPct={householdImpact?.pct_of_income.base ?? 29}
-        crisisDay={worldMetrics.crisisDay}
-        roleName={roleId === 'nurse' ? 'Amara' : 'Joseph'}
-        visible={scene === 'share'}
-      />
+      <ShareGenerator currency={householdImpact?.currency ?? 'KSh'} monthlyHit={worldMetrics.monthlyHitKsh}
+        monthlyHitPct={householdImpact?.pct_of_income.base ?? 29} crisisDay={worldMetrics.crisisDay}
+        roleName={roleId === 'nurse' ? 'Amara' : 'Joseph'} visible={scene === 'share'} />
 
-      {/* Field Console */}
-      <FieldConsole
-        lens={lens}
-        time={time}
-        future={future}
-        roleId={roleId}
-        whatIfOptions={whatIfOptions}
-        visible={showFieldConsole}
-        onLens={handleLens}
-        onTime={handleTime}
-        onFuture={handleFuture}
-        onSwitchPerspective={handleSwitchPerspective}
-      />
+      <FieldConsole lens={lens} time={time} future={future} roleId={roleId}
+        whatIfOptions={whatIfOptions} visible={showFieldConsole}
+        onLens={handleLens} onTime={handleTime} onFuture={handleFuture}
+        onSwitchPerspective={handleSwitchPerspective} />
 
-      {/* Sound toggle */}
-      <button
-        onClick={() => audio.setMuted(true)}
-        style={{
-          position: 'absolute', top: 20, left: 20, zIndex: 50,
-          background: 'rgba(10, 10, 18, 0.6)', border: 'none',
-          borderRadius: '50%', width: 36, height: 36,
-          color: COLORS.textSecondary, fontSize: 14, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: "'Instrument Sans', system-ui, sans-serif",
-        }}
-        aria-label="Toggle sound"
-      >
-        ♪
-      </button>
+      <button onClick={() => audio.setMuted(true)} style={{
+        position: 'absolute', top: 20, left: 20, zIndex: 50,
+        background: 'rgba(10, 10, 18, 0.6)', border: 'none',
+        borderRadius: '50%', width: 36, height: 36,
+        color: COLORS.textSecondary, fontSize: 14, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: "'Instrument Sans', system-ui, sans-serif",
+      }} aria-label="Toggle sound">♪</button>
 
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-      `}</style>
+      <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
     </div>
   )
 }
