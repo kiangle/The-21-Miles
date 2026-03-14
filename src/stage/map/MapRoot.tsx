@@ -75,7 +75,7 @@ const STYLE: maplibregl.StyleSpecification = {
       id: 'carto-dark-tiles',
       type: 'raster',
       source: 'carto-dark',
-      paint: { 'raster-opacity': 0.7 },
+      paint: { 'raster-opacity': 0.4 },
     },
     {
       id: 'kenya-fill',
@@ -394,5 +394,5 @@ export default function MapRoot(props: Props) {
     }
   }, [globePhase])
 
-  return <div ref={containerRef} style={{ position: 'absolute', inset: 0, pointerEvents: interactive ? undefined : 'none' }} />
+  return <div ref={containerRef} style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: interactive ? undefined : 'none' }} />
 }

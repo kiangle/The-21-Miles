@@ -238,7 +238,7 @@ export default function PixiStage({
   return (
     <div ref={containerRef} style={{
       position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-      zIndex: 3, pointerEvents: 'none',
+      zIndex: 5, pointerEvents: 'none',
       opacity: visible ? 1 : 0, transition: 'opacity 1s ease',
     }} />
   )

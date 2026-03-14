@@ -73,6 +73,9 @@ export default function Shell({
   // Derived: globe phase = entry or flyTo (interactive globe rotation)
   const globePhase = scene === 'entry' || scene === 'flyTo'
 
+  // Map should only be interactive when no overlays need clicks
+  const mapInteractive = !showRoleSelect && !showEntryUI && !inkBeat?.choices?.length
+
   // ── Bootstrap ──
   useEffect(() => {
     console.log('[Shell] Bootstrap effect')
@@ -335,12 +338,21 @@ export default function Shell({
         lens={lens}
         mapFocus={mapFocus}
         globePhase={globePhase}
-        interactive={!showRoleSelect}
+        interactive={mapInteractive}
         ruptured={['rupture', 'detour', 'cascade', 'yourMonth', 'whatNext', 'split'].includes(scene)}
         onSelectKenya={handleSelectKenya}
         onMapReady={handleMapReady}
         onFlyToComplete={handleFlyToComplete}
       />
+
+      {/* Dark overlay — dims map so Pixi + narrative are the focus */}
+      {stageVisible && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 2,
+          background: 'rgba(8, 8, 10, 0.4)',
+          pointerEvents: 'none',
+        }} />
+      )}
 
       {/* Entry UI */}
       {showEntryUI && scene === 'entry' && (
@@ -424,7 +436,7 @@ export default function Shell({
 
       <div ref={storyStageRef} className="story-stage" style={{
         position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-        zIndex: 0, pointerEvents: 'none',
+        zIndex: 2, pointerEvents: 'none',
       }} />
 
       <NarrativeCaption text={inkBeat?.text ?? ''} choices={inkBeat?.choices ?? []}

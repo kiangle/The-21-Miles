@@ -46,7 +46,7 @@ export default function NarrativeCaption({ text, choices, onChoose, visible }: P
 
   return (
     <div style={{
-      position: 'absolute',
+      position: 'fixed',
       bottom: isMobile
         ? (choices.length > 0 ? 70 : 50)
         : (choices.length > 0 ? 160 : 80),
@@ -58,7 +58,8 @@ export default function NarrativeCaption({ text, choices, onChoose, visible }: P
       background: 'rgba(10, 10, 18, 0.88)',
       borderRadius: 12,
       backdropFilter: 'blur(12px)',
-      zIndex: 25,
+      zIndex: 20,
+      pointerEvents: 'auto',
       maxHeight: isMobile ? '35vh' : undefined,
       overflowY: isMobile ? 'auto' : undefined,
     }}>
