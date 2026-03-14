@@ -158,6 +158,7 @@ export default function Shell({
 
   // ── Role selection ──
   const handleSelectRole = useCallback((role: 'nurse' | 'driver') => {
+    console.log('[Shell] ROLE SELECTED:', role)
     const profileId = role === 'nurse' ? 'exposure_kenya_nurse' : 'exposure_kenya_driver'
     send({ type: 'SELECT_ROLE', roleId: role, profileId })
     setShowRoleSelect(false)
@@ -325,6 +326,7 @@ export default function Shell({
         lens={lens}
         mapFocus={mapFocus}
         globePhase={globePhase}
+        interactive={!showRoleSelect}
         ruptured={['rupture', 'detour', 'cascade', 'yourMonth', 'whatNext', 'split'].includes(scene)}
         onSelectKenya={handleSelectKenya}
         onMapReady={handleMapReady}

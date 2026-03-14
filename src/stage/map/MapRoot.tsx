@@ -28,6 +28,7 @@ type Props = {
   mapFocus: MapFocus
   globePhase: boolean
   ruptured: boolean
+  interactive?: boolean
   onSelectKenya?: () => void
   onMapReady?: (map: maplibregl.Map) => void
   onFlyToComplete?: () => void
@@ -226,7 +227,7 @@ function buildDeckLayers(lens: LensId, ruptured: boolean, globePhase: boolean) {
 }
 
 export default function MapRoot(props: Props) {
-  const { lens, ruptured, mapFocus, globePhase, onSelectKenya, onMapReady, onFlyToComplete } = props
+  const { lens, ruptured, mapFocus, globePhase, interactive = true, onSelectKenya, onMapReady, onFlyToComplete } = props
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const deckOverlayRef = useRef<MapboxOverlay | null>(null)
@@ -394,5 +395,5 @@ export default function MapRoot(props: Props) {
     }
   }, [globePhase])
 
-  return <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+  return <div ref={containerRef} style={{ position: 'absolute', inset: 0, pointerEvents: interactive ? undefined : 'none' }} />
 }
