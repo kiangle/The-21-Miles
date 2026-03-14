@@ -5,6 +5,10 @@ import {
   drawShipMiniature, drawWake, drawLaneField,
   drawQueueBloom, drawNodeGlow, drawDensityBloom,
 } from './primitives/MiniatureFactory'
+import { TextureAtlas } from './primitives/TextureAtlas'
+import { ActorPool } from './primitives/ActorPool'
+import { RouteRenderer } from './primitives/RouteRenderer'
+import { WakeTrailSystem } from './primitives/WakeTrailSystem'
 
 /**
  * FlowBandRenderer — Shipping lens (OFFSHORE CAUSE LAYER).
@@ -65,6 +69,13 @@ export class FlowBandRenderer {
   private readonly FLOW_STRENGTH = 0.000038
   private readonly REROUTE_FRACTION = 0.35
 
+  // ── New rendering primitives (graceful fallback to MiniatureFactory) ──
+  private atlas: TextureAtlas | null = null
+  private actorPool: ActorPool | null = null
+  private routeRenderer: RouteRenderer | null = null
+  private wakeSystem: WakeTrailSystem | null = null
+  private useNewRendering = false
+
   constructor(parent: PIXI.Container, engine: Matter.Engine) {
     this.container = new PIXI.Container()
     parent.addChild(this.container)
@@ -78,6 +89,28 @@ export class FlowBandRenderer {
     this.container.addChild(this.bloomGfx)
     this.actorGfx = new PIXI.Graphics()
     this.container.addChild(this.actorGfx)
+  }
+
+  /**
+   * Initialize texture-based rendering. Call after constructor with app.renderer.
+   * If this is never called or fails, falls back to MiniatureFactory drawing.
+   */
+  initAtlas(renderer: PIXI.IRenderer) {
+    try {
+      this.atlas = TextureAtlas.get(renderer)
+      this.wakeSystem = new WakeTrailSystem(
+        this.container, this.atlas.tex('wake_particle'), 300,
+      )
+      this.routeRenderer = new RouteRenderer(this.container)
+      this.actorPool = new ActorPool(this.container, this.VESSEL_COUNT + 4, {
+        texture: this.atlas.tex('ship'),
+        glowTexture: this.atlas.tex('ship_glow'),
+        scale: 0.5,
+      })
+      this.useNewRendering = true
+    } catch (_e) {
+      this.useNewRendering = false
+    }
   }
 
   setAnchors(chokepoint: { x: number; y: number }, port: { x: number; y: number }) {
@@ -262,23 +295,64 @@ export class FlowBandRenderer {
       drawNodeGlow(this.actorGfx, this.portPos.x, this.portPos.y, 20, PIXI.utils.string2hex(COLORS.household), 0.9)
     }
 
-    // Ship miniatures + wakes — BIGGER scale
-    for (const v of this.vessels) {
-      const bx = v.body.position.x
-      const by = v.body.position.y
-      const color = v.isReroute ? rerouteHex : shippingHex
-      const speed = Math.sqrt(v.body.velocity.x ** 2 + v.body.velocity.y ** 2)
-
-      // Wake trail — more visible
-      if (v.trail.length >= 2) {
-        const wakeAlpha = Math.min(0.35, speed * 0.1)
-        drawWake(this.actorGfx, v.trail, color, wakeAlpha, 1.5)
+    // Ship miniatures + wakes — sprite-based or fallback
+    if (this.useNewRendering && this.actorPool && this.wakeSystem) {
+      // Route overlay (animated dashed lines along main/reroute paths)
+      if (this.routeRenderer) {
+        this.routeRenderer.clearRoutes()
+        if (main.length >= 2) {
+          this.routeRenderer.addRoute({
+            path: main, color: shippingHex, width: 1.5,
+            speed: 0.8, alpha: 0.3, pulseEnabled: true,
+          })
+        }
+        if (reroute.length >= 2 && this.constricted) {
+          this.routeRenderer.addRoute({
+            path: reroute, color: rerouteHex, width: 1.2,
+            speed: 0.6, alpha: 0.2 * this.pressure, pulseEnabled: true,
+          })
+        }
+        this.routeRenderer.update(dt)
       }
 
-      // Ship miniature — scale 1.0 base (was 0.8), clearly visible
-      const scale = 1.0 + ((v.body as any).circleRadius || 3.5) * 0.06
-      const alpha = 0.6 + Math.min(0.35, 0.3 / (speed + 0.4))
-      drawShipMiniature(this.actorGfx, bx, by, v.prevAngle, scale, alpha)
+      // Sprite-based ships + particle wakes
+      for (let vi = 0; vi < this.vessels.length; vi++) {
+        const v = this.vessels[vi]
+        const bx = v.body.position.x
+        const by = v.body.position.y
+        const color = v.isReroute ? rerouteHex : shippingHex
+        const speed = Math.sqrt(v.body.velocity.x ** 2 + v.body.velocity.y ** 2)
+        const scale = 0.5 * (1.0 + ((v.body as any).circleRadius || 3.5) * 0.06)
+        const alpha = 0.6 + Math.min(0.35, 0.3 / (speed + 0.4))
+
+        const id = `v${vi}`
+        this.actorPool.activate(id, bx, by, v.prevAngle, alpha)
+        this.actorPool.updateActor(id, bx, by, v.prevAngle, alpha, scale)
+
+        // Particle wake behind moving ships
+        if (speed > 0.3) {
+          this.wakeSystem.emit(bx, by, v.body.velocity.x, v.body.velocity.y, color, 1)
+        }
+      }
+
+      this.wakeSystem.update(dt)
+    } else {
+      // Fallback: original MiniatureFactory drawing
+      for (const v of this.vessels) {
+        const bx = v.body.position.x
+        const by = v.body.position.y
+        const color = v.isReroute ? rerouteHex : shippingHex
+        const speed = Math.sqrt(v.body.velocity.x ** 2 + v.body.velocity.y ** 2)
+
+        if (v.trail.length >= 2) {
+          const wakeAlpha = Math.min(0.35, speed * 0.1)
+          drawWake(this.actorGfx, v.trail, color, wakeAlpha, 1.5)
+        }
+
+        const scale = 1.0 + ((v.body as any).circleRadius || 3.5) * 0.06
+        const alpha = 0.6 + Math.min(0.35, 0.3 / (speed + 0.4))
+        drawShipMiniature(this.actorGfx, bx, by, v.prevAngle, scale, alpha)
+      }
     }
 
     // Chokepoint stress glow — bigger, pulsing
@@ -308,6 +382,9 @@ export class FlowBandRenderer {
     this.densityGfx.clear()
     this.bloomGfx.clear()
     this.actorGfx.clear()
+    if (this.actorPool) this.actorPool.deactivateAll()
+    if (this.wakeSystem) this.wakeSystem.clear()
+    if (this.routeRenderer) this.routeRenderer.clearRoutes()
   }
 
   /** Hard reset — alias for clear(). Used by SceneRecipeController. */
@@ -315,6 +392,10 @@ export class FlowBandRenderer {
 
   dispose() {
     this.clear()
+    if (this.actorPool) { this.actorPool.dispose(); this.actorPool = null }
+    if (this.wakeSystem) { this.wakeSystem.dispose(); this.wakeSystem = null }
+    if (this.routeRenderer) { this.routeRenderer.dispose(); this.routeRenderer = null }
+    this.useNewRendering = false
     this.container.destroy({ children: true })
   }
 }
