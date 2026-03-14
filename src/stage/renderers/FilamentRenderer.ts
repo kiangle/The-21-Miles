@@ -77,10 +77,19 @@ export class FilamentRenderer {
     this.container.alpha = alpha
   }
 
+  /** No-op — filaments don't respond to pressure. */
+  setPressure(_pressure: number) {}
+
+  /** No-op — filaments don't respond to perspective. */
+  setPerspective(_perspective: 'nurse' | 'driver' | null) {}
+
   clear() {
     this.filaments.forEach(f => f.line.destroy())
     this.filaments = []
   }
+
+  /** Hard reset — alias for clear(). Used by SceneRecipeController. */
+  reset() { this.clear() }
 
   dispose() {
     this.clear()

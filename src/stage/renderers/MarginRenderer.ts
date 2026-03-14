@@ -299,6 +299,9 @@ export class MarginRenderer {
     this.actorGfx.clear()
   }
 
+  /** Hard reset — alias for clear(). Used by SceneRecipeController. */
+  reset() { this.clear() }
+
   dispose() {
     this.clear()
     this.container.destroy({ children: true })

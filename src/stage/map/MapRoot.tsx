@@ -1,17 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Deck } from '@deck.gl/core'
 import { PathLayer, ScatterplotLayer } from '@deck.gl/layers'
+import { getAnchorProjector } from './AnchorProjector'
 import type { BootstrapResponse } from '../../atlas/types'
 import type { LensId } from '../../state/machine/worldContext'
+import type { MapFocus } from '../scene/SceneRecipe'
+import { MAP_FOCUS_PRESETS } from '../scene/SceneRecipe'
 
 /**
- * MapRoot — geographic truth beneath the world stage.
+ * MapRoot — the single spatial backbone.
  *
- * Minimal, dark, restrained. The user must know where they are:
- * Kenya, Mombasa port, Nairobi inland, corridor between them,
- * Indian Ocean to the east.
+ * Globe projection for world context.
+ * Flat/mercator for landed Kenya.
+ * Camera transitions between focus presets.
+ * Exposes map instance for AnchorProjector.
  */
 
 interface MapRootProps {
@@ -20,9 +24,19 @@ interface MapRootProps {
   countryId: string | null
   ruptured: boolean
   lens: LensId
+  /** Current map focus — drives camera position */
+  mapFocus: MapFocus
+  /** Whether globe mode is active (interactive rotation) */
+  globePhase: boolean
+  /** Callback when user clicks Kenya in globe mode */
+  onSelectKenya?: () => void
+  /** Callback when map is ready */
+  onMapReady?: (map: maplibregl.Map) => void
+  /** Callback when fly-to camera transition completes */
+  onFlyToComplete?: () => void
 }
 
-// ── GeoJSON: Simplified Kenya outline ──
+// ── GeoJSON data (unchanged) ──
 const KENYA_GEOJSON: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [{
@@ -41,7 +55,6 @@ const KENYA_GEOJSON: GeoJSON.FeatureCollection = {
   }],
 }
 
-// ── GeoJSON: East African landmass context ──
 const LAND_GEOJSON: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [{
@@ -62,7 +75,6 @@ const LAND_GEOJSON: GeoJSON.FeatureCollection = {
   }],
 }
 
-// ── GeoJSON: Kenya coastline ──
 const COASTLINE_GEOJSON: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [{
@@ -78,7 +90,6 @@ const COASTLINE_GEOJSON: GeoJSON.FeatureCollection = {
   }],
 }
 
-// ── GeoJSON: Mombasa–Nairobi corridor ──
 const CORRIDOR_GEOJSON: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
   features: [{
@@ -94,10 +105,20 @@ const CORRIDOR_GEOJSON: GeoJSON.FeatureCollection = {
   }],
 }
 
-// ── Map style: dark, legible, restrained ──
+// ── Map style ──
 const DARK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   name: 'twenty-one-miles',
+  // Globe projection for the entry phase
+  projection: { type: 'globe' },
+  sky: {
+    'sky-color': '#0A0A12',
+    'horizon-color': '#0d1220',
+    'fog-color': '#070b18',
+    'sky-horizon-blend': 0.5,
+    'horizon-fog-blend': 0.8,
+    'fog-ground-blend': 1.0,
+  },
   sources: {
     'land': { type: 'geojson', data: LAND_GEOJSON as any },
     'kenya': { type: 'geojson', data: KENYA_GEOJSON as any },
@@ -105,93 +126,44 @@ const DARK_STYLE: maplibregl.StyleSpecification = {
     'corridor': { type: 'geojson', data: CORRIDOR_GEOJSON as any },
   },
   layers: [
-    // Deep ocean — dark blue-black, not pure black
+    { id: 'background', type: 'background', paint: { 'background-color': '#070b18' } },
+    { id: 'land-fill', type: 'fill', source: 'land', paint: { 'fill-color': '#0d1220' } },
+    { id: 'kenya-fill', type: 'fill', source: 'kenya', paint: { 'fill-color': '#151d30' } },
+    { id: 'kenya-border', type: 'line', source: 'kenya', paint: { 'line-color': '#2e3a58', 'line-width': 2.2 } },
+    { id: 'coastline', type: 'line', source: 'coastline', paint: { 'line-color': '#2a3860', 'line-width': 2.5 } },
     {
-      id: 'background',
-      type: 'background',
-      paint: { 'background-color': '#070b18' },
-    },
-    // East Africa landmass — lifted from sea, gives place
-    {
-      id: 'land-fill',
-      type: 'fill',
-      source: 'land',
-      paint: { 'fill-color': '#0d1220' },
-    },
-    // Kenya — clearly distinguishable from surrounding land, lifted
-    {
-      id: 'kenya-fill',
-      type: 'fill',
-      source: 'kenya',
-      paint: { 'fill-color': '#151d30' },
-    },
-    // Kenya border — visible boundary, warmer
-    {
-      id: 'kenya-border',
-      type: 'line',
-      source: 'kenya',
-      paint: {
-        'line-color': '#2e3a58',
-        'line-width': 2.2,
-      },
-    },
-    // Coastline — readable sea/land edge, stronger
-    {
-      id: 'coastline',
-      type: 'line',
-      source: 'coastline',
-      paint: {
-        'line-color': '#2a3860',
-        'line-width': 2.5,
-      },
-    },
-    // Mombasa–Nairobi corridor — warm gold, STRONG, readable artery
-    {
-      id: 'corridor',
-      type: 'line',
-      source: 'corridor',
-      paint: {
-        'line-color': '#c89850',
-        'line-width': 3.5,
-        'line-opacity': 0.45,
-        'line-dasharray': [6, 3],
-      },
+      id: 'corridor', type: 'line', source: 'corridor',
+      paint: { 'line-color': '#c89850', 'line-width': 3.5, 'line-opacity': 0.45, 'line-dasharray': [6, 3] },
     },
   ],
 }
 
-// Route data for deck.gl overlays
+// ── Route + chokepoint data for deck.gl ──
 const ROUTE_PATHS = [
   {
     id: 'hormuz_africa',
     coordinates: [[56.3, 26.5], [54.0, 24.0], [48.0, 20.0], [44.0, 15.0], [43.3, 12.6], [44.0, 8.0], [44.0, 2.0], [39.7, -4.0]],
-    blocked: true,
-    layer: 'shipping' as LensId,
+    blocked: true, layer: 'shipping' as LensId,
   },
   {
     id: 'red_sea_suez',
     coordinates: [[43.3, 12.6], [42.0, 15.0], [38.0, 20.0], [35.0, 25.0], [33.5, 28.0], [32.3, 30.0]],
-    blocked: false,
-    layer: 'shipping' as LensId,
+    blocked: false, layer: 'shipping' as LensId,
   },
   {
     id: 'cape_route',
     coordinates: [[39.7, -4.0], [40.0, -10.0], [37.0, -20.0], [32.0, -30.0], [18.5, -34.4], [5.0, -30.0], [-5.0, -20.0]],
-    blocked: false,
-    stressed: true,
-    layer: 'shipping' as LensId,
+    blocked: false, stressed: true, layer: 'shipping' as LensId,
   },
   {
     id: 'mombasa_nairobi',
     coordinates: [[39.67, -4.05], [38.5, -3.0], [37.5, -2.0], [36.82, -1.29]],
-    blocked: false,
-    layer: 'freight' as LensId,
+    blocked: false, layer: 'freight' as LensId,
   },
   {
     id: 'indian_ocean',
     coordinates: [[56.3, 26.5], [60.0, 20.0], [65.0, 15.0], [72.0, 5.0], [80.0, -2.0], [95.0, 0.0], [103.8, 1.4]],
-    blocked: true,
-    layer: 'shipping' as LensId,
+    blocked: true, layer: 'shipping' as LensId,
   },
 ]
 
@@ -208,30 +180,43 @@ const PORT_DATA = [
   { id: 'singapore', coordinates: [103.84, 1.26], label: 'Singapore' },
 ]
 
-export default function MapRoot({ visible, bootstrap, countryId, ruptured, lens }: MapRootProps) {
+export default function MapRoot({
+  visible, bootstrap, countryId, ruptured, lens,
+  mapFocus, globePhase, onSelectKenya, onMapReady, onFlyToComplete,
+}: MapRootProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const deckRef = useRef<Deck | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
   const [mapReady, setMapReady] = useState(false)
+  const prevFocusRef = useRef<MapFocus>('world')
 
-  // Initialize MapLibre
+  // ── Initialize MapLibre with globe projection ──
   useEffect(() => {
-    if (!visible || !mapContainerRef.current || mapRef.current) return
+    if (!mapContainerRef.current || mapRef.current) return
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: DARK_STYLE,
-      center: [36.82, -1.29],
-      zoom: 3,
+      center: MAP_FOCUS_PRESETS.world.center,
+      zoom: MAP_FOCUS_PRESETS.world.zoom,
       attributionControl: false,
-      interactive: false,
+      interactive: true,
+      dragRotate: true,
+      scrollZoom: false,
+      touchZoomRotate: false,
+      doubleClickZoom: false,
+      keyboard: false,
     })
 
     map.on('load', () => {
       setMapReady(true)
 
-      // Add city markers — stronger labels
+      // Attach AnchorProjector
+      const projector = getAnchorProjector()
+      projector.attach(map)
+
+      // City markers
       const cities = [
         { name: 'Mombasa', coords: [39.67, -4.05] as [number, number], sub: 'port' },
         { name: 'Nairobi', coords: [36.82, -1.29] as [number, number], sub: 'capital' },
@@ -239,137 +224,187 @@ export default function MapRoot({ visible, bootstrap, countryId, ruptured, lens 
 
       for (const city of cities) {
         const el = document.createElement('div')
-        el.style.cssText = `
-          display: flex; flex-direction: column; align-items: center;
-          pointer-events: none;
-        `
-        // Dot — warm gold, BIGGER with strong glow
+        el.style.cssText = 'display:flex;flex-direction:column;align-items:center;pointer-events:none;'
         const dot = document.createElement('div')
-        dot.style.cssText = `
-          width: 10px; height: 10px; border-radius: 999px;
-          background: #dcc89e;
-          box-shadow: 0 0 12px rgba(220,200,158,0.5), 0 0 28px rgba(220,200,158,0.2);
-        `
+        dot.style.cssText = 'width:10px;height:10px;border-radius:999px;background:#dcc89e;box-shadow:0 0 12px rgba(220,200,158,0.5),0 0 28px rgba(220,200,158,0.2);'
         el.appendChild(dot)
-        // Label — readable warm off-white, BIGGER
         const label = document.createElement('div')
         label.textContent = city.name
-        label.style.cssText = `
-          color: #d4b87d; font-size: 13px; margin-top: 6px;
-          font-family: 'Instrument Sans', system-ui, sans-serif;
-          letter-spacing: 0.04em; white-space: nowrap; font-weight: 600;
-          text-shadow: 0 1px 8px rgba(0,0,0,0.95), 0 0 18px rgba(0,0,0,0.7);
-        `
+        label.style.cssText = "color:#d4b87d;font-size:13px;margin-top:6px;font-family:'Instrument Sans',system-ui,sans-serif;letter-spacing:0.04em;white-space:nowrap;font-weight:600;text-shadow:0 1px 8px rgba(0,0,0,0.95),0 0 18px rgba(0,0,0,0.7);"
         el.appendChild(label)
-        // Sub label — desaturated gold, readable
         if (city.sub) {
           const sub = document.createElement('div')
           sub.textContent = city.sub
-          sub.style.cssText = `
-            color: rgba(212,184,125,0.5); font-size: 10px;
-            font-family: 'Instrument Sans', system-ui, sans-serif;
-            letter-spacing: 0.4px; margin-top: 2px;
-          `
+          sub.style.cssText = "color:rgba(212,184,125,0.5);font-size:10px;font-family:'Instrument Sans',system-ui,sans-serif;letter-spacing:0.4px;margin-top:2px;"
           el.appendChild(sub)
         }
-
         const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat(city.coords)
           .addTo(map)
-
         markersRef.current.push(marker)
       }
+
+      onMapReady?.(map)
     })
 
     mapRef.current = map
 
     return () => {
+      getAnchorProjector().detach()
       markersRef.current.forEach(m => m.remove())
       markersRef.current = []
       map.remove()
       mapRef.current = null
       setMapReady(false)
     }
-  }, [visible])
+  }, [onMapReady])
 
-  // Initialize deck.gl overlay
+  // ── Kenya click handler for globe phase ──
   useEffect(() => {
-    if (!visible || !mapReady || !mapContainerRef.current) return
+    if (!mapRef.current || !mapReady || !globePhase) return
+    const map = mapRef.current
+
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
+      // Check if click is on Kenya polygon
+      const features = map.queryRenderedFeatures(e.point, { layers: ['kenya-fill'] })
+      if (features.length > 0) {
+        onSelectKenya?.()
+      }
+    }
+
+    // Hover cursor on Kenya
+    const handleMouseMove = (e: maplibregl.MapMouseEvent) => {
+      const features = map.queryRenderedFeatures(e.point, { layers: ['kenya-fill'] })
+      map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : ''
+    }
+
+    map.on('click', handleClick)
+    map.on('mousemove', handleMouseMove)
+    return () => {
+      map.off('click', handleClick)
+      map.off('mousemove', handleMouseMove)
+      map.getCanvas().style.cursor = ''
+    }
+  }, [mapReady, globePhase, onSelectKenya])
+
+  // ── Camera focus transitions ──
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return
+    if (mapFocus === prevFocusRef.current) return
+    prevFocusRef.current = mapFocus
+
+    const map = mapRef.current
+    const preset = MAP_FOCUS_PRESETS[mapFocus]
+
+    // When transitioning from globe to landed, switch to mercator
+    if (mapFocus !== 'world') {
+      try {
+        (map as any).setProjection?.({ type: 'mercator' })
+      } catch (_) { /* projection API may differ */ }
+    }
+
+    map.flyTo({
+      center: preset.center,
+      zoom: preset.zoom,
+      pitch: preset.pitch,
+      bearing: preset.bearing,
+      duration: mapFocus === 'world' ? 0 : 3000,
+      essential: true,
+    })
+
+    // Listen for fly-to completion
+    if (mapFocus !== 'world') {
+      const onMoveEnd = () => {
+        map.off('moveend', onMoveEnd)
+        onFlyToComplete?.()
+      }
+      map.on('moveend', onMoveEnd)
+    }
+  }, [mapFocus, mapReady, onFlyToComplete])
+
+  // ── Toggle interactivity based on phase ──
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return
+    const map = mapRef.current
+
+    if (globePhase) {
+      map.dragRotate.enable()
+      map.getCanvas().style.pointerEvents = 'auto'
+    } else {
+      map.dragRotate.disable()
+      map.getCanvas().style.pointerEvents = 'none'
+    }
+  }, [globePhase, mapReady])
+
+  // ── deck.gl overlay ──
+  useEffect(() => {
+    if (!mapReady || !mapContainerRef.current) return
     if (deckRef.current) return
 
     const deck = new Deck({
       parent: mapContainerRef.current,
       viewState: {
-        longitude: 36.82,
-        latitude: -1.29,
-        zoom: 3,
-        pitch: 0,
-        bearing: 0,
+        longitude: MAP_FOCUS_PRESETS.world.center[0],
+        latitude: MAP_FOCUS_PRESETS.world.center[1],
+        zoom: MAP_FOCUS_PRESETS.world.zoom,
+        pitch: 0, bearing: 0,
       },
       controller: false,
       style: { position: 'absolute' as const, top: '0', left: '0', zIndex: '2' },
       layers: createDeckLayers(ruptured, lens),
     })
-
     deckRef.current = deck
 
     return () => {
       deck.finalize()
       deckRef.current = null
     }
-  }, [visible, mapReady])
+  }, [mapReady])
 
-  // Update deck layers when rupture state or lens changes
+  // ── Update deck layers ──
   useEffect(() => {
     if (deckRef.current) {
       deckRef.current.setProps({ layers: createDeckLayers(ruptured, lens) })
     }
   }, [ruptured, lens])
 
-  // Update corridor brightness based on lens
+  // ── Corridor lens adjustment ──
   useEffect(() => {
     if (!mapRef.current || !mapReady) return
     const map = mapRef.current
-
-    const corridorOpacity =
-      lens === 'freight' ? 0.6 :
-      lens === 'medicine' ? 0.4 :
-      lens === 'household' ? 0.35 :
-      0.3
-
-    const corridorWidth =
-      lens === 'freight' ? 3.5 :
-      lens === 'medicine' ? 2.5 :
-      2.5
-
+    const corridorOpacity = lens === 'freight' ? 0.6 : lens === 'medicine' ? 0.4 : lens === 'household' ? 0.35 : 0.3
     try {
       map.setPaintProperty('corridor', 'line-opacity', corridorOpacity)
-      map.setPaintProperty('corridor', 'line-width', corridorWidth)
+      map.setPaintProperty('corridor', 'line-width', lens === 'freight' ? 3.5 : 2.5)
     } catch (_) { /* layer may not exist yet */ }
   }, [lens, mapReady])
 
-  if (!visible) return null
+  // ── Kenya highlight on hover in globe phase ──
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return
+    const map = mapRef.current
+    try {
+      map.setPaintProperty('kenya-fill', 'fill-color', globePhase ? '#1a2540' : '#151d30')
+    } catch (_) {}
+  }, [globePhase, mapReady])
 
   return (
     <div
       ref={mapContainerRef}
       style={{
         position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
+        top: 0, left: 0,
+        width: '100%', height: '100%',
         zIndex: 2,
         opacity: visible ? 1 : 0,
         transition: 'opacity 1s ease',
-        pointerEvents: 'none',
+        pointerEvents: globePhase ? 'auto' : 'none',
       }}
     />
   )
 }
 
 function createDeckLayers(ruptured: boolean, lens: LensId) {
-  // Lens-aware opacity: routes dim when not relevant, bright when active
   const shippingAlpha = lens === 'shipping' ? 1.0 : 0.25
   const freightAlpha = lens === 'freight' ? 1.0 : 0.2
 
@@ -380,15 +415,9 @@ function createDeckLayers(ruptured: boolean, lens: LensId) {
       getPath: (d: any) => d.coordinates,
       getColor: (d: any) => {
         const lensA = d.layer === 'freight' ? freightAlpha : shippingAlpha
-        if (d.blocked) {
-          return [170, 90, 90, Math.round((ruptured ? 80 : 200) * lensA)]
-        }
-        if (d.stressed) {
-          return [212, 118, 60, Math.round(200 * lensA)]
-        }
-        if (d.layer === 'freight') {
-          return [200, 169, 110, Math.round(200 * freightAlpha)]
-        }
+        if (d.blocked) return [170, 90, 90, Math.round((ruptured ? 80 : 200) * lensA)]
+        if (d.stressed) return [212, 118, 60, Math.round(200 * lensA)]
+        if (d.layer === 'freight') return [200, 169, 110, Math.round(200 * freightAlpha)]
         return [140, 200, 255, Math.round(160 * shippingAlpha)]
       },
       getWidth: (d: any) => {
@@ -400,10 +429,7 @@ function createDeckLayers(ruptured: boolean, lens: LensId) {
       widthUnits: 'pixels' as const,
       widthMinPixels: 1,
       rounded: true,
-      updateTriggers: {
-        getColor: [ruptured, lens],
-        getWidth: [ruptured, lens],
-      },
+      updateTriggers: { getColor: [ruptured, lens], getWidth: [ruptured, lens] },
     }),
     new ScatterplotLayer({
       id: 'chokepoints',

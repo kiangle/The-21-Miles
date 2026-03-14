@@ -447,6 +447,9 @@ export class PulseRenderer {
     this.heartbeatHistory = []
   }
 
+  /** Hard reset — alias for clear(). Used by SceneRecipeController. */
+  reset() { this.clear() }
+
   dispose() {
     this.clear()
     this.container.destroy({ children: true })

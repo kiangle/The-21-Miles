@@ -11,22 +11,23 @@ import ComparePanel from '../overlays/ComparePanel'
 import ConnectionReveal from '../overlays/ConnectionReveal'
 import FieldConsole from '../gameplay/console/FieldConsole'
 import ShareGenerator from '../gameplay/interactions/ShareGenerator'
-import { flyToCountry } from '../globe/FlyToTransition'
-import { WORLD_ID, NAIROBI, COLORS } from './config/constants'
+import { resolveRecipe } from '../stage/scene/SceneRecipe'
+import { WORLD_ID, COLORS } from './config/constants'
 import type { SceneId, LensId, TimeId, FutureId } from '../state/machine/worldContext'
 import type { BootstrapResponse, HouseholdImpactResponse, WhatIfResponse, LiveParameters, ConnectionDiscovery, WhatIfSummary } from '../atlas/types'
 import type { WorldEvent } from '../state/machine/worldEvents'
-import type { GlobeSceneAPI } from '../globe/GlobeScene'
 import type { InkBeat } from '../narrative/InkEngine'
+import type { MapFocus } from '../stage/scene/SceneRecipe'
 
-// Register ScrollTrigger
 gsap.registerPlugin(ScrollTrigger)
 
 /**
  * Shell — the single persistent world.
  *
  * No page transitions. No route changes. The world IS the UI.
- * Three.js globe → fly-to → MapLibre + deck.gl + Pixi stage → cascade → your month.
+ * MapLibre globe → fly-to → landed Kenya → cascade → your month.
+ *
+ * Three.js globe is REMOVED. MapLibre globe projection is the entry surface.
  */
 
 interface Props {
@@ -50,41 +51,20 @@ export default function Shell({
   bootstrap, householdImpact, whatIfResult, liveParams,
   discoveredConnections, worldMetrics,
 }: Props) {
-  const { initGlobe, disposeGlobe, ink, audio, atlas } = useStage()
-  const globeContainerRef = useRef<HTMLDivElement>(null)
+  const { ink, audio, atlas } = useStage()
   const storyStageRef = useRef<HTMLDivElement>(null)
-  const globeRef = useRef<GlobeSceneAPI | null>(null)
-  const animFrameRef = useRef<number>(0)
-  const lastTimeRef = useRef(0)
-  const [stageVisible, setStageVisible] = useState(false)
-  const [inkBeat, setInkBeat] = useState<InkBeat | null>(null)
-  const [entryText, setEntryText] = useState('')
-  const [showRoleSelect, setShowRoleSelect] = useState(false)
+  const lastScrollZoneRef = useRef<string>('')
   const scrollTriggerRef = useRef<ScrollTrigger | null>(null)
 
-  // ── Globe Init ──
-  useEffect(() => {
-    if (!globeContainerRef.current) return
-    const globe = initGlobe(globeContainerRef.current)
-    globeRef.current = globe
+  const [stageVisible, setStageVisible] = useState(false)
+  const [inkBeat, setInkBeat] = useState<InkBeat | null>(null)
+  const [showEntryUI, setShowEntryUI] = useState(false)
+  const [showRoleSelect, setShowRoleSelect] = useState(false)
+  const [mapFocus, setMapFocus] = useState<MapFocus>('world')
+  const [mapReady, setMapReady] = useState(false)
 
-    lastTimeRef.current = performance.now()
-    const animate = (now: number) => {
-      const delta = (now - lastTimeRef.current) / 1000
-      lastTimeRef.current = now
-      globe.update(Math.min(delta, 0.05))
-      animFrameRef.current = requestAnimationFrame(animate)
-    }
-    animFrameRef.current = requestAnimationFrame(animate)
-
-    const onResize = () => globe.resize(window.innerWidth, window.innerHeight)
-    window.addEventListener('resize', onResize)
-
-    return () => {
-      cancelAnimationFrame(animFrameRef.current)
-      window.removeEventListener('resize', onResize)
-    }
-  }, [initGlobe])
+  // Derived state
+  const globePhase = scene === 'entry' || scene === 'flyTo'
 
   // ── Bootstrap ──
   useEffect(() => {
@@ -93,77 +73,44 @@ export default function Shell({
     })
   }, [atlas, send])
 
-  // ── Set markers from bootstrap data ──
+  // ── Entry scene: show UI after delay ──
   useEffect(() => {
-    if (!bootstrap || !globeRef.current) return
-    const countries = bootstrap.countries
-    if (countries && countries.length > 0) {
-      globeRef.current.setMarkersFromBootstrap(countries)
-    }
-  }, [bootstrap])
+    if (scene !== 'entry' || !bootstrap) return
 
-  // ── Entry scene: rupture then markers ──
-  useEffect(() => {
-    if (scene !== 'entry' || !globeRef.current || !bootstrap) return
-
-    const globe = globeRef.current
-
-    const ruptureTimer = setTimeout(() => {
-      globe.triggerRupture()
+    const timer = setTimeout(() => {
+      setShowEntryUI(true)
       audio.init().then(() => audio.playRupture())
     }, 3000)
 
-    const textTimer = setTimeout(() => {
-      setEntryText('show')
-      globe.showMarkers()
-    }, 6000)
-
-    return () => {
-      clearTimeout(ruptureTimer)
-      clearTimeout(textTimer)
-    }
+    return () => clearTimeout(timer)
   }, [scene, bootstrap, audio])
 
-  // ── Country selection via globe click ──
-  useEffect(() => {
-    if (scene !== 'entry' || !globeRef.current) return
+  // ── Map ready callback ──
+  const handleMapReady = useCallback(() => {
+    setMapReady(true)
+  }, [])
 
-    const globe = globeRef.current
-    const onClick = (e: MouseEvent) => {
-      const marker = globe.getMarkerAtScreen(e.clientX, e.clientY)
-      if (marker && marker.id === 'kenya') {
-        send({ type: 'SELECT_COUNTRY', countryId: 'kenya' })
-      }
-    }
-    globe.renderer.domElement.addEventListener('click', onClick)
-    return () => globe.renderer.domElement.removeEventListener('click', onClick)
-  }, [scene, send])
+  // ── Kenya selection from map click ──
+  const handleSelectKenya = useCallback(() => {
+    send({ type: 'SELECT_COUNTRY', countryId: 'kenya' })
+  }, [send])
 
   // ── Fly-to transition ──
   useEffect(() => {
-    if (scene !== 'flyTo' || !globeRef.current) return
-    const globe = globeRef.current
-    setEntryText('')
-    globe.hideMarkers()
+    if (scene !== 'flyTo') return
+    setShowEntryUI(false)
+    setMapFocus('kenya')
+  }, [scene])
 
-    flyToCountry(
-      globe,
-      NAIROBI.lat,
-      NAIROBI.lng,
-      () => {
-        setStageVisible(true)
-        setShowRoleSelect(true)
-        disposeGlobe()
-      },
-      () => {
-        setStageVisible(true)
-      },
-    )
-  }, [scene, disposeGlobe])
+  // ── Fly-to complete: show role select ──
+  const handleFlyToComplete = useCallback(() => {
+    setStageVisible(true)
+    setShowRoleSelect(true)
+    // Tighten to corridor view
+    setMapFocus('corridor')
+  }, [])
 
   // ── ScrollTrigger for story progression ──
-  const lastScrollZoneRef = useRef<string>('')
-
   useEffect(() => {
     if (!stageVisible || !storyStageRef.current) return
 
@@ -180,61 +127,43 @@ export default function Shell({
         let targetTime: TimeId = 'day1'
 
         if (p < 0.2) {
-          // 0–20%: Baseline — shipping visible, Day 1
-          zone = 'baseline'
-          targetLens = 'shipping'
-          targetTime = 'day1'
+          zone = 'baseline'; targetLens = 'shipping'; targetTime = 'day1'
         } else if (p < 0.4) {
-          // 20–40%: Rupture — chokepoint constricts, shift to freight
-          zone = 'rupture'
-          targetLens = 'freight'
-          targetTime = 'day3'
+          zone = 'rupture'; targetLens = 'freight'; targetTime = 'day3'
         } else if (p < 0.6) {
-          // 40–60%: Detour — cape route visible, medicine path
-          zone = 'detour'
-          targetLens = 'medicine'
-          targetTime = 'week1'
+          zone = 'detour'; targetLens = 'medicine'; targetTime = 'week1'
         } else if (p < 0.8) {
-          // 60–80%: Cascade — medicine → household, compression builds
-          zone = 'cascade'
-          targetLens = 'household'
-          targetTime = 'week1'
+          zone = 'cascade'; targetLens = 'household'; targetTime = 'week1'
         } else {
-          // 80–100%: Your month — full compression
-          zone = 'yourMonth'
-          targetLens = 'household'
-          targetTime = 'month1'
+          zone = 'yourMonth'; targetLens = 'household'; targetTime = 'month1'
         }
 
-        // Only fire scene transition once per zone crossing
         if (zone !== lastScrollZoneRef.current) {
           lastScrollZoneRef.current = zone
           send({ type: 'ADVANCE_SCENE', scene: zone as SceneId })
           send({ type: 'SET_LENS', lens: targetLens })
           send({ type: 'SET_TIME', time: targetTime })
+
+          // Update map focus based on scene
+          const recipe = resolveRecipe(zone, roleId, targetTime as any)
+          setMapFocus(recipe.mapFocus)
         }
       },
     })
 
     scrollTriggerRef.current = st
+    return () => { st.kill(); scrollTriggerRef.current = null }
+  }, [stageVisible, send, roleId])
 
-    return () => {
-      st.kill()
-      scrollTriggerRef.current = null
-    }
-  }, [stageVisible, send])
-
-  // ── Role selection (driven by bootstrap roles) ──
+  // ── Role selection ──
   const handleSelectRole = useCallback((role: 'nurse' | 'driver') => {
     const profileId = role === 'nurse' ? 'exposure_kenya_nurse' : 'exposure_kenya_driver'
     send({ type: 'SELECT_ROLE', roleId: role, profileId })
     setShowRoleSelect(false)
 
-    // Load narrative from bootstrap narrative_pack
     const narrativePack = bootstrap?.narrative_pack || 'kenya'
     ink.load(narrativePack).then(() => {
       if (ink.isLoaded()) {
-        // Inject runtime variables
         if (liveParams) {
           ink.injectAtlasVariables({
             crisisDay: liveParams.crisis_day,
@@ -295,6 +224,13 @@ export default function Shell({
         }
         if (tag === 'SPLIT_SCREEN: true') send({ type: 'TOGGLE_COMPARE' })
         if (tag === 'GENERATE_CLIP: true') send({ type: 'ADVANCE_SCENE', scene: 'share' })
+        // Ink → SceneRecipe mapping via RECIPE tag
+        if (tag.startsWith('RECIPE:')) {
+          const recipeMapFocus = tag.replace('RECIPE:', '').trim()
+          if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor'].includes(recipeMapFocus)) {
+            setMapFocus(recipeMapFocus as MapFocus)
+          }
+        }
       }
     }
   }, [ink, send, audio, atlas, lens, roleId])
@@ -312,36 +248,38 @@ export default function Shell({
 
   const showFieldConsole = ['baseline', 'rupture', 'detour', 'cascade', 'yourMonth', 'whatNext', 'split'].includes(scene)
 
-  // Build what-if options from bootstrap future_paths if available, otherwise from what_if_scenarios
   const whatIfOptions: WhatIfSummary[] = bootstrap?.future_paths
     ? bootstrap.future_paths.map(fp => ({
       id: fp.id === 'redSea' ? 'whatif_redsea' : fp.id === 'reserves' ? 'whatif_reserves' : 'whatif_ceasefire',
-      label: fp.label,
-      hint: fp.hint,
-      node_type: 'move',
+      label: fp.label, hint: fp.hint, node_type: 'move',
       direction: fp.direction === 'worse' ? 'worsens' as const : 'improves' as const,
       probability: fp.probability,
     }))
     : bootstrap?.what_if_scenarios ?? []
 
-  // Build role data from bootstrap
   const roles = bootstrap?.roles?.filter(r => r.country_id === 'kenya') ?? []
 
   return (
     <div style={{
-      position: 'relative',
-      width: '100vw',
-      height: '100vh',
-      overflow: 'hidden',
-      background: COLORS.dark,
+      position: 'relative', width: '100vw', height: '100vh',
+      overflow: 'hidden', background: COLORS.dark,
     }}>
-      {/* Three.js Globe Layer */}
-      <div ref={globeContainerRef} style={{
-        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1,
-      }} />
+      {/* MapLibre Globe + Map — the single spatial backbone */}
+      <MapRoot
+        visible={true}
+        bootstrap={bootstrap}
+        countryId="kenya"
+        ruptured={scene === 'rupture' || scene === 'detour' || scene === 'cascade' || scene === 'yourMonth' || scene === 'whatNext' || scene === 'split'}
+        lens={lens}
+        mapFocus={mapFocus}
+        globePhase={globePhase}
+        onSelectKenya={handleSelectKenya}
+        onMapReady={handleMapReady}
+        onFlyToComplete={handleFlyToComplete}
+      />
 
-      {/* Entry text — Instrument Serif for title, Instrument Sans for prompt */}
-      {entryText && (
+      {/* Entry UI — title, subtitle, start button */}
+      {showEntryUI && scene === 'entry' && (
         <div style={{
           position: 'absolute', top: '42%', left: '50%',
           transform: 'translate(-50%, -50%)', zIndex: 10,
@@ -351,8 +289,7 @@ export default function Shell({
           <h1 style={{
             color: COLORS.textPrimary,
             fontSize: 'clamp(32px, 7vw, 48px)',
-            fontWeight: 400,
-            letterSpacing: 4, margin: 0,
+            fontWeight: 400, letterSpacing: 4, margin: 0,
             fontFamily: "'Instrument Serif', Georgia, serif",
             textShadow: '0 2px 20px rgba(10,10,18,0.8)',
             pointerEvents: 'none',
@@ -383,7 +320,7 @@ export default function Shell({
         </div>
       )}
 
-      {/* Role selection — driven by bootstrap roles */}
+      {/* Role selection */}
       {showRoleSelect && (
         <div style={{
           position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
@@ -405,12 +342,8 @@ export default function Shell({
                   padding: '14px 28px',
                   background: 'rgba(200, 169, 110, 0.12)',
                   border: `1px solid ${COLORS.gold}44`,
-                  borderRadius: 12,
-                  color: COLORS.gold,
-                  fontSize: 16,
-                  cursor: 'pointer',
-                  width: 280,
-                  textAlign: 'left',
+                  borderRadius: 12, color: COLORS.gold, fontSize: 16,
+                  cursor: 'pointer', width: 280, textAlign: 'left',
                   fontFamily: "'Instrument Sans', system-ui, sans-serif",
                 }}
               >
@@ -444,16 +377,7 @@ export default function Shell({
         </div>
       )}
 
-      {/* MapLibre + deck.gl Landing Stage — below overlays, pointer-events: none to not block tray */}
-      <MapRoot
-        visible={stageVisible}
-        bootstrap={bootstrap}
-        countryId="kenya"
-        ruptured={scene === 'rupture' || scene === 'detour' || scene === 'cascade' || scene === 'yourMonth' || scene === 'whatNext' || scene === 'split'}
-        lens={lens}
-      />
-
-      {/* Pixi Stage — 2D living world. Receives time/future/roleId so tray controls change the world */}
+      {/* Pixi Stage — 2D living world, now using projected anchors */}
       <PixiStage
         scene={scene}
         lens={lens}
@@ -483,7 +407,7 @@ export default function Shell({
       {/* Live data pulse */}
       <LiveDataPulse liveParams={liveParams} visible={stageVisible} />
 
-      {/* Compression chamber — "Your month" */}
+      {/* Compression chamber */}
       <CompressionChamber
         impact={householdImpact}
         visible={scene === 'yourMonth'}
