@@ -109,7 +109,12 @@ export default function Shell({
   }, [scene])
 
   // ── Fly-to complete → show role select ──
+  // Stable callback — no deps that change identity — to avoid
+  // re-triggering MapRoot's flyTo effect and killing moveend listeners.
+  const flyToHandledRef = useRef(false)
   const handleFlyToComplete = useCallback(() => {
+    if (flyToHandledRef.current) return
+    flyToHandledRef.current = true
     setStageVisible(true)
     setShowRoleSelect(true)
     setMapFocus('corridor')
