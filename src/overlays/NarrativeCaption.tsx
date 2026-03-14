@@ -42,23 +42,30 @@ export default function NarrativeCaption({ text, choices, onChoose, visible }: P
 
   if (!visible || !text) return null
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640
+
   return (
     <div style={{
       position: 'absolute',
-      bottom: choices.length > 0 ? 160 : 80,
+      bottom: isMobile
+        ? (choices.length > 0 ? 70 : 50)
+        : (choices.length > 0 ? 160 : 80),
       left: '50%',
       transform: 'translateX(-50%)',
-      maxWidth: 600,
-      padding: '20px 32px',
+      maxWidth: isMobile ? 'calc(100vw - 24px)' : 600,
+      width: isMobile ? 'calc(100vw - 24px)' : undefined,
+      padding: isMobile ? '12px 16px' : '20px 32px',
       background: 'rgba(10, 10, 18, 0.88)',
       borderRadius: 12,
       backdropFilter: 'blur(12px)',
       zIndex: 25,
+      maxHeight: isMobile ? '35vh' : undefined,
+      overflowY: isMobile ? 'auto' : undefined,
     }}>
       <p style={{
         color: COLORS.textPrimary,
-        fontSize: 16,
-        lineHeight: 1.7,
+        fontSize: isMobile ? 14 : 16,
+        lineHeight: isMobile ? 1.5 : 1.7,
         fontFamily: "'Instrument Sans', system-ui, sans-serif",
         margin: 0,
         whiteSpace: 'pre-wrap',

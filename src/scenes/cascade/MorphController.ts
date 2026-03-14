@@ -49,6 +49,7 @@ interface LensAlphas {
 export class MorphController {
   private renderers: MorphRenderers
   private currentLens: LensId = 'shipping'
+  private currentRole: 'nurse' | 'driver' | null = null
   private transitioning = false
   private activeTween: gsap.core.Timeline | null = null
   private state: WorldVisualState = {
@@ -97,10 +98,18 @@ export class MorphController {
   /**
    * Propagate perspective to all renderers.
    * "See through..." changes visual emphasis per role.
+   * Also adjusts lens weights — nurse boosts medicine, driver boosts freight.
    */
   setPerspective(role: 'nurse' | 'driver' | null) {
     this.state.perspective = role
+    const prevRole = this.currentRole
+    this.currentRole = role
     this.propagate()
+
+    // Re-morph to current lens with role-adjusted weights
+    if (role !== prevRole && !this.transitioning) {
+      this.morphTo(this.currentLens, 0.8)
+    }
   }
 
   private propagate() {
@@ -152,7 +161,7 @@ export class MorphController {
     this.currentLens = targetLens
     this.state.activeLens = targetLens
 
-    const targetAlphas = MorphController.LENS_WEIGHTS[targetLens]
+    const targetAlphas = this.getWeightsForLens(targetLens)
 
     // Make sure all renderers are visible (alpha controls opacity, not visibility)
     this.renderers.flowBands.setVisible(true)
@@ -223,7 +232,7 @@ export class MorphController {
    * Used for initial setup.
    */
   showOnly(lens: LensId) {
-    const weights = MorphController.LENS_WEIGHTS[lens]
+    const weights = this.getWeightsForLens(lens)
     this.alphas.shipping = weights.shipping
     this.alphas.freight = weights.freight
     this.alphas.medicine = weights.medicine
@@ -238,6 +247,31 @@ export class MorphController {
     this.applyAlphas()
     this.currentLens = lens
     this.state.activeLens = lens
+  }
+
+  /**
+   * Role-biased weight resolver.
+   * Nurse: medicine ghosted weight boosted (0.06→0.25), freight slightly boosted.
+   * Driver: freight ghosted weight boosted (0.15→0.30), medicine slightly boosted.
+   * The active lens stays at 1.0 — role bias only lifts secondary lenses.
+   */
+  private getWeightsForLens(lens: LensId): Record<LensId, number> {
+    const base = { ...MorphController.LENS_WEIGHTS[lens] }
+    if (!this.currentRole) return base
+
+    if (this.currentRole === 'nurse') {
+      // Nurse cares about medicine — boost it when it's not the active lens
+      if (lens !== 'medicine') base.medicine = Math.max(base.medicine, 0.25)
+      // Slight freight context since medicine travels the freight corridor
+      if (lens !== 'freight') base.freight = Math.max(base.freight, 0.18)
+    } else if (this.currentRole === 'driver') {
+      // Driver cares about freight — boost it when it's not the active lens
+      if (lens !== 'freight') base.freight = Math.max(base.freight, 0.30)
+      // Slight household context since freight cost hits food prices
+      if (lens !== 'household') base.household = Math.max(base.household, 0.15)
+    }
+
+    return base
   }
 
   private getRendererForLens(lens: LensId) {

@@ -57,8 +57,9 @@ export default function CompressionChamber({ impact, visible, currency, future }
     if (!visible || !impact || !containerRef.current) return
     if (appRef.current) return
 
-    const size = 480  // bigger chamber — 480px, dominant
-    const padding = 40
+    const isMobile = window.innerWidth < 640
+    const size = isMobile ? Math.min(320, window.innerWidth - 32) : 480
+    const padding = isMobile ? 24 : 40
 
     // ── Pixi application ──
     const app = new PIXI.Application({
@@ -326,7 +327,7 @@ export default function CompressionChamber({ impact, visible, currency, future }
         // Main hit number — LARGE, serif
         const hitText = new PIXI.Text(`${currency} ${totalHit.toLocaleString()}`, {
           fontFamily: "'Instrument Serif', Georgia, serif",
-          fontSize: 36,
+          fontSize: isMobile ? 26 : 36,
           fontWeight: 'bold',
           fill: COLORS.textPrimary,
         })

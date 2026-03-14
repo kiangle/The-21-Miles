@@ -47,23 +47,25 @@ export default function FieldConsole({
 }: Props) {
   if (!visible) return null
 
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640
+
   return (
     <div style={{
       position: 'absolute',
-      bottom: 20,
+      bottom: isMobile ? 8 : 20,
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'flex',
-      gap: 12,
-      padding: '10px 16px',
-      background: 'rgba(10, 10, 18, 0.78)',
-      borderRadius: 16,
+      gap: isMobile ? 6 : 12,
+      padding: isMobile ? '6px 10px' : '10px 16px',
+      background: 'rgba(10, 10, 18, 0.82)',
+      borderRadius: isMobile ? 12 : 16,
       backdropFilter: 'blur(12px)',
       border: '1px solid rgba(200, 169, 110, 0.15)',
       zIndex: 40,
       flexWrap: 'wrap',
       justifyContent: 'center',
-      maxWidth: '90vw',
+      maxWidth: isMobile ? '96vw' : '90vw',
     }}>
       {/* Follow the... */}
       <ControlGroup label="Follow the...">
@@ -150,16 +152,17 @@ function Chip({ label, active, onClick, color }: {
   color?: string
 }) {
   const activeColor = color || COLORS.gold
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640
   return (
     <button
       onClick={onClick}
       style={{
-        padding: '4px 10px',
+        padding: isMobile ? '3px 7px' : '4px 10px',
         borderRadius: 12,
         border: `1px solid ${active ? activeColor : 'rgba(255,255,255,0.1)'}`,
         background: active ? `${activeColor}22` : 'transparent',
         color: active ? activeColor : COLORS.textSecondary,
-        fontSize: 11,
+        fontSize: isMobile ? 10 : 11,
         fontFamily: "'Instrument Sans', system-ui, sans-serif",
         cursor: 'pointer',
         transition: 'all 0.2s',

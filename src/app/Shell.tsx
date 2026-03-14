@@ -346,9 +346,12 @@ export default function Shell({
           position: 'absolute', top: '42%', left: '50%',
           transform: 'translate(-50%, -50%)', zIndex: 10,
           textAlign: 'center', animation: 'fadeIn 1.5s ease',
+          width: '90vw', maxWidth: 480,
         }}>
           <h1 style={{
-            color: COLORS.textPrimary, fontSize: 48, fontWeight: 400,
+            color: COLORS.textPrimary,
+            fontSize: 'clamp(32px, 7vw, 48px)',
+            fontWeight: 400,
             letterSpacing: 4, margin: 0,
             fontFamily: "'Instrument Serif', Georgia, serif",
             textShadow: '0 2px 20px rgba(10,10,18,0.8)',
