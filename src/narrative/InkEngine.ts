@@ -5,6 +5,9 @@ import { Story } from 'inkjs'
  *
  * Each world+country has its own .ink.json.
  * The engine injects live variables from Atlas.
+ *
+ * Emits typed events when ink tags contain directives:
+ * SCENE, MORPH, SOUND, DISCOVERY, SPLIT_SCREEN, FUTURE, RECIPE, GENERATE_CLIP
  */
 
 export interface InkChoice {
@@ -18,9 +21,23 @@ export interface InkBeat {
   choices: InkChoice[]
 }
 
+/** Events emitted from ink tag directives. */
+export type InkTagEvent =
+  | { type: 'SCENE'; value: string }
+  | { type: 'MORPH'; value: string }
+  | { type: 'SOUND'; value: string }
+  | { type: 'DISCOVERY'; value: string }
+  | { type: 'SPLIT_SCREEN'; value: string }
+  | { type: 'FUTURE'; value: string }
+  | { type: 'RECIPE'; value: string }
+  | { type: 'GENERATE_CLIP'; value: string }
+
+export type InkTagListener = (event: InkTagEvent) => void
+
 export class InkEngine {
   private story: Story | null = null
   private loaded = false
+  private listeners: InkTagListener[] = []
 
   async load(narrativePack: string): Promise<void> {
     try {
@@ -65,6 +82,30 @@ export class InkEngine {
     }
   }
 
+  /** Register a listener for ink tag events. Returns an unsubscribe function. */
+  onTagEvent(listener: InkTagListener): () => void {
+    this.listeners.push(listener)
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener)
+    }
+  }
+
+  private emitTagEvents(tags: string[]) {
+    const directives = ['SCENE', 'MORPH', 'SOUND', 'DISCOVERY', 'SPLIT_SCREEN', 'FUTURE', 'RECIPE', 'GENERATE_CLIP']
+    for (const tag of tags) {
+      for (const directive of directives) {
+        if (tag.startsWith(`${directive}:`)) {
+          const value = tag.slice(directive.length + 1).trim()
+          const event: InkTagEvent = { type: directive as InkTagEvent['type'], value }
+          for (const listener of this.listeners) {
+            listener(event)
+          }
+          break
+        }
+      }
+    }
+  }
+
   continue(): InkBeat | null {
     if (!this.story) return null
 
@@ -76,6 +117,11 @@ export class InkEngine {
       if (this.story.currentTags) {
         tags.push(...this.story.currentTags)
       }
+    }
+
+    // Emit tag events to listeners
+    if (tags.length > 0) {
+      this.emitTagEvents(tags)
     }
 
     const choices = this.story.currentChoices.map((c, i) => ({

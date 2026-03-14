@@ -69,8 +69,9 @@ export class FreightScene implements ActiveScene {
     const path = this.getPath()
     if (path.length < 2) return
 
-    const corridorWidth = 32
-    const bottleneckWidth = 10
+    // Pressure drives corridor and bottleneck widths
+    const corridorWidth = 32 * (1 - this.recipe.pressure * 0.3)
+    const bottleneckWidth = 40 * (1 - this.recipe.pressure * 0.6)
     const bottleneckPos = 0.4
 
     for (let i = 0; i < path.length - 1; i++) {
@@ -183,7 +184,7 @@ export class FreightScene implements ActiveScene {
         const dy = end.y - tb.body.position.y
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (dist > 1) {
-          const f = 0.000035
+          const f = 0.00003 * (0.5 + this.recipe.pressure)
           Matter.Body.applyForce(tb.body, tb.body.position, {
             x: (dx / dist) * f,
             y: (dy / dist) * f,

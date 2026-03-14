@@ -17,7 +17,7 @@ import { WORLD_ID, COLORS } from './config/constants'
 import type { SceneId, LensId, TimeId, FutureId } from '../state/machine/worldContext'
 import type { BootstrapResponse, HouseholdImpactResponse, WhatIfResponse, LiveParameters, ConnectionDiscovery, WhatIfSummary } from '../atlas/types'
 import type { WorldEvent } from '../state/machine/worldEvents'
-import type { InkBeat } from '../narrative/InkEngine'
+import type { InkBeat, InkTagEvent } from '../narrative/InkEngine'
 import type { MapFocus } from '../stage/scene/SceneRecipe'
 
 gsap.registerPlugin(ScrollTrigger)
@@ -185,62 +185,76 @@ export default function Shell({
     audio.init().then(() => audio.playAmbient())
   }, [send, ink, atlas, audio, bootstrap, liveParams])
 
-  // ── Ink choices with recipe tags ──
-  const handleInkChoice = useCallback((choiceIndex: number) => {
-    ink.choose(choiceIndex)
-    const beat = ink.continue()
-    if (beat) {
-      setInkBeat(beat)
-      for (const tag of beat.tags) {
-        if (tag.startsWith('SCENE:')) {
-          send({ type: 'ADVANCE_SCENE', scene: tag.replace('SCENE:', '').trim() as SceneId })
-        }
-        if (tag.startsWith('SOUND:')) {
-          const sound = tag.replace('SOUND:', '').trim()
+  // ── Ink tag event listener — dispatches ink directives to XState/audio/recipes ──
+  useEffect(() => {
+    const unsub = ink.onTagEvent((event: InkTagEvent) => {
+      switch (event.type) {
+        case 'SCENE':
+          send({ type: 'ADVANCE_SCENE', scene: event.value as SceneId })
+          break
+        case 'MORPH':
+          // Morph events can drive scene-level visual changes
+          break
+        case 'SOUND': {
+          const sound = event.value
           if (sound === 'pressure_buildup') audio.playRupture()
           if (sound === 'domain_crossing') audio.playDomainCrossing(lens)
           if (sound === 'discovery_chord') audio.playDiscoveryChord()
           if (sound === 'walls_closing') audio.playCompression()
           if (sound === 'splitting_tone') audio.playForkSplit()
+          break
         }
-        if (tag.startsWith('DISCOVERY:')) {
+        case 'DISCOVERY':
           atlas.checkConnections(WORLD_ID, [], '').then(result => {
             if (result.newly_discovered.length > 0) {
               send({ type: 'CONNECTION_DISCOVERED', connections: result.newly_discovered })
             }
           })
-        }
-        if (tag.startsWith('FUTURE:')) {
-          const futureId = tag.replace('FUTURE:', '').trim()
+          break
+        case 'SPLIT_SCREEN':
+          send({ type: 'TOGGLE_COMPARE' })
+          break
+        case 'FUTURE': {
           const futureMap: Record<string, FutureId> = { redSea: 'redSea', reserves: 'reserves', ceasefire: 'closureEnds' }
-          const fid = futureMap[futureId]
+          const fid = futureMap[event.value]
           if (fid) {
             send({ type: 'SET_FUTURE', future: fid })
-            const scenarioId = futureId === 'redSea' ? 'whatif_redsea' : futureId === 'reserves' ? 'whatif_reserves' : 'whatif_ceasefire'
+            const scenarioId = event.value === 'redSea' ? 'whatif_redsea' : event.value === 'reserves' ? 'whatif_reserves' : 'whatif_ceasefire'
             atlas.whatIf(WORLD_ID, scenarioId, roleId === 'nurse' ? 'exposure_kenya_nurse' : 'exposure_kenya_driver')
               .then(data => send({ type: 'WHAT_IF_RECEIVED', data }))
           }
+          break
         }
-        if (tag === 'SPLIT_SCREEN: true') send({ type: 'TOGGLE_COMPARE' })
-        if (tag === 'GENERATE_CLIP: true') send({ type: 'ADVANCE_SCENE', scene: 'share' })
-        // Ink → recipe: set both mapFocus AND active recipe
-        if (tag.startsWith('RECIPE:')) {
-          const value = tag.replace('RECIPE:', '').trim()
-          // Allow direct recipe IDs (e.g. RECIPE: amara_medicine_week1)
+        case 'RECIPE': {
+          const value = event.value
           if (RECIPES[value]) {
             const recipe = RECIPES[value]
             setActiveRecipe(recipe)
             setMapFocus(recipe.mapFocus)
           } else if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor', 'shipping'].includes(value)) {
-            // Focus-based: resolve best recipe for current role + time
             const recipe = resolveRecipeByFocus(value as MapFocus, roleId, time)
             setActiveRecipe(recipe)
             setMapFocus(value as MapFocus)
           }
+          break
         }
+        case 'GENERATE_CLIP':
+          send({ type: 'ADVANCE_SCENE', scene: 'share' })
+          break
       }
+    })
+    return unsub
+  }, [ink, send, audio, atlas, lens, roleId, time])
+
+  // ── Ink choices ──
+  const handleInkChoice = useCallback((choiceIndex: number) => {
+    ink.choose(choiceIndex)
+    const beat = ink.continue()
+    if (beat) {
+      setInkBeat(beat)
+      // Tag events are now emitted automatically by InkEngine.continue()
     }
-  }, [ink, send, audio, atlas, lens, roleId])
+  }, [ink])
 
   // ── Field console handlers ──
   const handleLens = useCallback((l: LensId) => {

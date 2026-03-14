@@ -71,7 +71,7 @@ function createScene(recipe: SceneRecipe, ctx: SceneCtx) {
 }
 
 export default function PixiStage({
-  scene, lens, time, future, roleId,
+  scene, lens, time, future, roleId, compareMode,
   visible, activeRecipe: activeRecipeProp,
 }: PixiStageProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -211,6 +211,29 @@ export default function PixiStage({
       atm.colorMatrix.matrix[12] = 1 - redShift * 0.5
     }
   }, [time, future])
+
+  // ── Compare mode: split screen with alt-pressure scene ──
+  useEffect(() => {
+    if (!controllerRef.current || !appRef.current || !engineRef.current) return
+
+    if (compareMode) {
+      const projector = getAnchorProjector()
+      const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any)
+      if (recipe.phase !== 'landed') return
+
+      const ctx: SceneCtx = {
+        app: appRef.current,
+        matterEngine: engineRef.current,
+        anchors: projector.getAll(),
+      }
+
+      // Alt pressure: multiply by FUTURE_PRESSURE modifier
+      const altPressure = Math.min(1, recipe.pressure * FUTURE_PRESSURE[future])
+      controllerRef.current.enableCompare(recipe, ctx, altPressure)
+    } else {
+      controllerRef.current.disableCompare()
+    }
+  }, [compareMode, scene, roleId, time, future, activeRecipeProp])
 
   return (
     <div ref={containerRef} style={{

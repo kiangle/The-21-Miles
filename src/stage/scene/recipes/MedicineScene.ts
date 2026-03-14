@@ -75,8 +75,8 @@ export class MedicineScene implements ActiveScene {
     const path = this.getPath()
     if (path.length < 2) return
 
-    // Guide walls along the path (thin channel)
-    const channelWidth = 14
+    // Guide walls along the path — channel narrows with pressure (supply gate)
+    const channelWidth = 40 * (1 - this.recipe.pressure * 0.6)
     for (let i = 0; i < path.length - 1; i++) {
       const p0 = path[i]
       const p1 = path[i + 1]
@@ -217,7 +217,7 @@ export class MedicineScene implements ActiveScene {
         const dy = end.y - mb.body.position.y
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (dist > 1) {
-          const f = 0.000035
+          const f = 0.00003 * (0.5 + this.recipe.pressure)
           Matter.Body.applyForce(mb.body, mb.body.position, {
             x: (dx / dist) * f,
             y: (dy / dist) * f,
