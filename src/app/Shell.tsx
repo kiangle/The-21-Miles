@@ -162,9 +162,8 @@ export default function Shell({
     send({ type: 'SELECT_ROLE', roleId: role, profileId })
     setShowRoleSelect(false)
 
-    // Start with shipping lens on role selection (baseline view)
-    send({ type: 'SET_LENS', lens: 'shipping' })
-    const recipe = resolveRecipe('baseline', role, 'day1', 'shipping')
+    // Resolve recipe for baseline — no lens override, uses role-based fallback
+    const recipe = resolveRecipe('baseline', role, 'day1')
     setActiveRecipe(recipe)
     setMapFocus(recipe.mapFocus)
 

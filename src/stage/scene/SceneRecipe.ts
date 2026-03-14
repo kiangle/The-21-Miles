@@ -252,14 +252,14 @@ export function resolveRecipeByFocus(
 
 /**
  * Resolve the best recipe for a given state combination.
- * LENS is the primary driver — it determines what scene type is shown.
- * Role determines perspective. Time selects the time variant.
+ * lens is an OPTIONAL override — when provided and we're in a landed scene,
+ * it picks the recipe by lens. Otherwise falls back to role-based logic.
  */
 export function resolveRecipe(
   scene: string,
   role: 'nurse' | 'driver' | null,
   time: TimeSlice,
-  lens: LensType = 'shipping',
+  lens?: LensType | null,
 ): SceneRecipe {
   if (scene === 'entry') return RECIPES.globe_context
   if (scene === 'flyTo') return RECIPES.kenya_focus
@@ -268,34 +268,37 @@ export function resolveRecipe(
     return RECIPES.month_squeeze_month1
   }
 
-  // LENS is the primary driver, not role
-  const perspective = role === 'nurse' ? 'amara' : role === 'driver' ? 'joseph' : null
+  // If lens is explicitly set, try to find a matching recipe
+  if (lens) {
+    const perspective = role === 'nurse' ? 'amara' : role === 'driver' ? 'joseph' : null
+    const candidates = Object.values(RECIPES).filter(r =>
+      r.phase === 'landed' && r.lens === lens &&
+      (r.perspective === perspective || r.perspective === null)
+    )
+    // Prefer exact perspective match
+    const exact = candidates.filter(r => r.perspective === perspective)
+    const pool = exact.length > 0 ? exact : candidates
 
-  // Find recipes matching this lens
-  const candidates = Object.values(RECIPES).filter(r =>
-    r.phase === 'landed' && r.lens === lens
-  )
-
-  // Prefer matching perspective, then any
-  const withPerspective = candidates.filter(r =>
-    r.perspective === perspective || r.perspective === null
-  )
-  // Among those, prefer exact perspective match over null
-  const exactPerspective = withPerspective.filter(r => r.perspective === perspective)
-  const pool = exactPerspective.length > 0 ? exactPerspective : withPerspective
-
-  const withTime = pool.find(r => r.time === time)
-  if (withTime) return withTime
-
-  // day3 falls back to day1
-  if (time === 'day3') {
-    const day1 = pool.find(r => r.time === 'day1')
-    if (day1) return day1
+    const withTime = pool.find(r => r.time === time)
+    if (withTime) return withTime
+    // day3 falls back to day1
+    if (time === 'day3') {
+      const day1 = pool.find(r => r.time === 'day1')
+      if (day1) return day1
+    }
+    if (pool.length > 0) return pool[0]
   }
 
-  if (pool.length > 0) return pool[0]
-  if (candidates.length > 0) return candidates[0]
+  // Default: role-based (original working logic)
+  if (scene === 'baseline') {
+    return time === 'day1' || time === 'day3' ? RECIPES.shipping_day1 : RECIPES.shipping_week1
+  }
+  if (role === 'nurse') {
+    return time === 'day1' || time === 'day3' ? RECIPES.amara_medicine_day1 : RECIPES.amara_medicine_week1
+  }
+  if (role === 'driver') {
+    return time === 'day1' || time === 'day3' ? RECIPES.joseph_freight_day1 : RECIPES.joseph_freight_week1
+  }
 
-  // Fallback to shipping
-  return RECIPES.shipping_day1
+  return RECIPES.globe_context
 }

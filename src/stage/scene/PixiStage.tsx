@@ -154,7 +154,7 @@ export default function PixiStage({
     const projector = getAnchorProjector()
 
     // Use activeRecipe from Shell when available, otherwise resolve
-    const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any, lens as LensType)
+    const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any, lens as LensType | null)
     if (recipe.phase === 'landed' && !projector.ready) return
     if (recipe.id === prevRecipeRef.current) return
     prevRecipeRef.current = recipe.id
@@ -176,7 +176,7 @@ export default function PixiStage({
     const projector = getAnchorProjector()
     const unsub = projector.onUpdate(() => {
       if (!controllerRef.current || !appRef.current || !engineRef.current) return
-      const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any, lens as LensType)
+      const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any, lens as LensType | null)
       if (recipe.phase !== 'landed') return
       // Always rebuild with fresh anchors — even if recipe ID is the same,
       // the projected positions have changed and the scene must update.
@@ -218,7 +218,7 @@ export default function PixiStage({
 
     if (compareMode) {
       const projector = getAnchorProjector()
-      const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any, lens as LensType)
+      const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any, lens as LensType | null)
       if (recipe.phase !== 'landed') return
 
       const ctx: SceneCtx = {
