@@ -346,13 +346,13 @@ export default function Shell({
           position: 'absolute', top: '42%', left: '50%',
           transform: 'translate(-50%, -50%)', zIndex: 10,
           textAlign: 'center', animation: 'fadeIn 1.5s ease',
-          pointerEvents: 'none',
         }}>
           <h1 style={{
             color: COLORS.textPrimary, fontSize: 48, fontWeight: 400,
             letterSpacing: 4, margin: 0,
             fontFamily: "'Instrument Serif', Georgia, serif",
             textShadow: '0 2px 20px rgba(10,10,18,0.8)',
+            pointerEvents: 'none',
           }}>
             21 miles
           </h1>
@@ -360,17 +360,23 @@ export default function Shell({
             color: COLORS.textSecondary, fontSize: 16, marginTop: 12,
             letterSpacing: 1,
             fontFamily: "'Instrument Sans', system-ui, sans-serif",
+            pointerEvents: 'none',
           }}>
             A distant channel is already inside your month.
           </p>
-          <p style={{
-            color: COLORS.gold, fontSize: 14, marginTop: 24,
-            letterSpacing: 0.5, opacity: 0.9,
-            fontFamily: "'Instrument Sans', system-ui, sans-serif",
-            animation: 'fadeIn 2s ease 0.5s both',
-          }}>
+          <button
+            onClick={() => send({ type: 'SELECT_COUNTRY', countryId: 'kenya' })}
+            style={{
+              color: COLORS.gold, fontSize: 14, marginTop: 24,
+              letterSpacing: 0.5, opacity: 0.9,
+              fontFamily: "'Instrument Sans', system-ui, sans-serif",
+              animation: 'fadeIn 2s ease 0.5s both',
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '8px 16px',
+            }}
+          >
             Start in Kenya
-          </p>
+          </button>
         </div>
       )}
 
