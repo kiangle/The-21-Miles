@@ -13,6 +13,7 @@ import { MedicineScene } from './recipes/MedicineScene'
 import { FreightScene } from './recipes/FreightScene'
 import { MonthScene } from './recipes/MonthScene'
 import { ShippingScene } from './recipes/ShippingScene'
+import { UnifiedFlowSystem } from '../renderers/UnifiedFlowSystem'
 import type { SceneId, TimeId, FutureId } from '../../state/machine/worldContext'
 
 /**
@@ -35,6 +36,8 @@ interface PixiStageProps {
   erosionPct: number
   visible: boolean
   activeRecipe?: SceneRecipe | null
+  visualDomain?: string
+  flowFrozen?: boolean
 }
 
 const TIME_PRESSURE: Record<TimeId, number> = {
@@ -73,11 +76,13 @@ function createScene(recipe: SceneRecipe, ctx: SceneCtx) {
 export default function PixiStage({
   scene, lens, time, future, roleId,
   visible, activeRecipe: activeRecipeProp,
+  visualDomain = 'shipping', flowFrozen = false,
 }: PixiStageProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const appRef = useRef<PIXI.Application | null>(null)
   const controllerRef = useRef<SceneRecipeController | null>(null)
   const engineRef = useRef<Matter.Engine | null>(null)
+  const flowSystemRef = useRef<UnifiedFlowSystem | null>(null)
   const prevRecipeRef = useRef<string>('')
   const atmosphereRef = useRef<{
     noise: NoiseFilter
@@ -123,10 +128,27 @@ export default function PixiStage({
 
     atmosphereRef.current = { noise: noiseFilter, colorMatrix, vignetteGfx }
 
+    // ── UnifiedFlowSystem — narrative-visual particle sync ──
+    const flowSystem = new UnifiedFlowSystem(app.stage, app.renderer)
+    flowSystemRef.current = flowSystem
+
+    // Default path: a horizontal line across the viewport (replaced by anchor projector when available)
+    const w = app.screen.width
+    const h = app.screen.height
+    flowSystem.setPath([
+      { x: -20, y: h * 0.45 },
+      { x: w * 0.25, y: h * 0.42 },
+      { x: w * 0.5, y: h * 0.48 },
+      { x: w * 0.75, y: h * 0.44 },
+      { x: w + 20, y: h * 0.46 },
+    ])
+    console.log('[PixiStage] UnifiedFlowSystem created and path set')
+
     // ── Ticker: only active recipe ticks ──
     app.ticker.add((delta) => {
       const dt = delta / 60
       controller.update(dt)
+      flowSystem.update(dt)
       noiseFilter.seed = Math.random()
     })
   }, [])
@@ -134,6 +156,8 @@ export default function PixiStage({
   useEffect(() => {
     initPixi()
     return () => {
+      flowSystemRef.current?.dispose()
+      flowSystemRef.current = null
       controllerRef.current?.dispose()
       controllerRef.current = null
       if (appRef.current) {
@@ -211,6 +235,50 @@ export default function PixiStage({
       atm.colorMatrix.matrix[12] = 1 - redShift * 0.5
     }
   }, [time, future])
+
+  // ── Narrative-visual sync: morph particles when visualDomain changes ──
+  useEffect(() => {
+    const flow = flowSystemRef.current
+    if (!flow) return
+    if (flow.getCurrentDomain() === visualDomain) return
+    console.log('[PixiStage] visualDomain changed →', visualDomain)
+    flow.morphTo(visualDomain, 1.5)
+  }, [visualDomain])
+
+  // ── Freeze/resume flow particles ──
+  useEffect(() => {
+    const flow = flowSystemRef.current
+    if (!flow) return
+    if (flowFrozen) {
+      console.log('[PixiStage] Flow frozen')
+      flow.freeze()
+    } else {
+      console.log('[PixiStage] Flow resumed')
+      flow.resume()
+    }
+  }, [flowFrozen])
+
+  // ── Update flow path from anchor projector when anchors change ──
+  useEffect(() => {
+    const projector = getAnchorProjector()
+    const unsub = projector.onUpdate(() => {
+      const flow = flowSystemRef.current
+      if (!flow) return
+      const anchors = projector.getAll()
+      // Build path from route anchors if available
+      const routeKeys = Object.keys(anchors).filter(k => k.startsWith('route_'))
+      if (routeKeys.length >= 2) {
+        const points = routeKeys
+          .sort()
+          .map(k => anchors[k])
+          .filter(a => a && typeof a.x === 'number' && typeof a.y === 'number')
+        if (points.length >= 2) {
+          flow.setPath(points)
+        }
+      }
+    })
+    return unsub
+  }, [])
 
   return (
     <div ref={containerRef} style={{

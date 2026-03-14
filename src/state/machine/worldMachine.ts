@@ -261,6 +261,24 @@ export const worldMachine = createMachine({
     SET_INK_KNOT: {
       actions: assign({ inkKnot: ({ event }) => event.knot }),
     },
+    SET_VISUAL_DOMAIN: {
+      actions: assign({ visualDomain: ({ event }) => event.domain }),
+    },
+    SET_MORPH_QUEUE: {
+      actions: assign({ morphQueue: ({ event }) => event.stages }),
+    },
+    ADVANCE_MORPH_QUEUE: {
+      actions: assign({
+        visualDomain: ({ context }) => context.morphQueue[0] ?? context.visualDomain,
+        morphQueue: ({ context }) => context.morphQueue.slice(1),
+      }),
+    },
+    FREEZE_FLOW: {
+      actions: assign({ flowFrozen: () => true }),
+    },
+    RESUME_FLOW: {
+      actions: assign({ flowFrozen: () => false }),
+    },
     PAUSE: {
       actions: assign({ playing: () => false }),
     },

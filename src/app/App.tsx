@@ -35,6 +35,8 @@ export default function App() {
         liveParams={ctx.liveParams}
         discoveredConnections={ctx.discoveredConnections}
         worldMetrics={ctx.worldMetrics}
+        visualDomain={ctx.visualDomain}
+        flowFrozen={ctx.flowFrozen}
       />
     </StageProvider>
   )

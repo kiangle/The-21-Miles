@@ -60,6 +60,11 @@ export interface WorldContext {
   // Ink narrative
   inkKnot: string | null
 
+  // Narrative-visual sync
+  visualDomain: string
+  morphQueue: string[]
+  flowFrozen: boolean
+
   // Playback
   playing: boolean
 }
@@ -97,5 +102,10 @@ export const initialContext: WorldContext = {
   },
 
   inkKnot: null,
+
+  visualDomain: 'shipping',
+  morphQueue: [],
+  flowFrozen: false,
+
   playing: true,
 }

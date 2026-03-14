@@ -17,6 +17,11 @@ export type WorldEvent =
   | { type: 'WHAT_IF_RECEIVED'; data: WhatIfResponse }
   | { type: 'LIVE_PARAMS_UPDATE'; params: LiveParameters }
   | { type: 'SET_INK_KNOT'; knot: string }
+  | { type: 'SET_VISUAL_DOMAIN'; domain: string }
+  | { type: 'SET_MORPH_QUEUE'; stages: string[] }
+  | { type: 'ADVANCE_MORPH_QUEUE' }
+  | { type: 'FREEZE_FLOW' }
+  | { type: 'RESUME_FLOW' }
   | { type: 'PAUSE' }
   | { type: 'RESUME' }
   | { type: 'RESET' }

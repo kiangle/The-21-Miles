@@ -51,12 +51,14 @@ interface Props {
   liveParams: LiveParameters | null
   discoveredConnections: ConnectionDiscovery[]
   worldMetrics: { monthlyHitKsh: number; crisisDay: number; medicinePressure: number; oilPriceUsd: number }
+  visualDomain: string
+  flowFrozen: boolean
 }
 
 export default function Shell({
   send, scene, lens, time, future, roleId, compareMode,
   bootstrap, householdImpact, whatIfResult, liveParams,
-  discoveredConnections, worldMetrics,
+  discoveredConnections, worldMetrics, visualDomain, flowFrozen,
 }: Props) {
   const { ink, audio, atlas } = useStage()
   const storyStageRef = useRef<HTMLDivElement>(null)
@@ -69,6 +71,7 @@ export default function Shell({
   const [showRoleSelect, setShowRoleSelect] = useState(false)
   const [mapFocus, setMapFocus] = useState<MapFocus>('world')
   const [activeRecipe, setActiveRecipe] = useState<SceneRecipe | null>(null)
+  const [morphQueue, setMorphQueue] = useState<string[]>([])
 
   // Derived: globe phase = entry or flyTo (interactive globe rotation)
   const globePhase = scene === 'entry' || scene === 'flyTo'
@@ -185,16 +188,68 @@ export default function Shell({
     audio.init().then(() => audio.playAmbient())
   }, [send, ink, atlas, audio, bootstrap, liveParams])
 
-  // ── Ink choices with recipe tags ──
+  // ── Scene → default domain mapping for narrative-visual sync ──
+  const sceneDefaultDomain: Record<string, string> = {
+    baseline: 'shipping',
+    rupture: 'shipping',
+    detour: 'shipping',
+    cascade: 'shipping',
+    exposure: 'shipping',
+    your_month: 'household',
+    yourMonth: 'household',
+    what_next: 'household',
+    whatNext: 'household',
+    split: 'household',
+  }
+
+  // ── Ink choices with recipe tags + MORPH/SCENE narrative-visual sync ──
   const handleInkChoice = useCallback((choiceIndex: number) => {
     ink.choose(choiceIndex)
     const beat = ink.continue()
     if (beat) {
       setInkBeat(beat)
+
+      // Advance morph queue on each new ink beat (sentence-driven transitions)
+      if (morphQueue.length > 0) {
+        const nextDomain = morphQueue[0]
+        send({ type: 'SET_VISUAL_DOMAIN', domain: nextDomain })
+        setMorphQueue(prev => prev.slice(1))
+        send({ type: 'ADVANCE_MORPH_QUEUE' })
+      }
+
       for (const tag of beat.tags) {
-        if (tag.startsWith('SCENE:')) {
-          send({ type: 'ADVANCE_SCENE', scene: tag.replace('SCENE:', '').trim() as SceneId })
+        // ── MORPH: shipping > freight > import_stress > medicine ──
+        if (tag.startsWith('MORPH:')) {
+          const stages = tag.replace('MORPH:', '').trim()
+            .split('>').map(s => s.trim())
+
+          if (stages.length >= 2) {
+            // First stage applies immediately
+            const nextDomain = stages[1]
+            send({ type: 'SET_VISUAL_DOMAIN', domain: nextDomain })
+            // Remaining stages queued for sentence-by-sentence advancement
+            const remaining = stages.slice(2)
+            setMorphQueue(remaining)
+            send({ type: 'SET_MORPH_QUEUE', stages: remaining })
+          }
         }
+
+        // ── SCENE: with domain + special effects ──
+        if (tag.startsWith('SCENE:')) {
+          const sceneTag = tag.replace('SCENE:', '').trim()
+          const domain = sceneDefaultDomain[sceneTag] || 'shipping'
+          send({ type: 'SET_VISUAL_DOMAIN', domain })
+          send({ type: 'ADVANCE_SCENE', scene: sceneTag as SceneId })
+
+          // Scene-specific visual triggers
+          if (sceneTag === 'rupture') {
+            send({ type: 'FREEZE_FLOW' })
+          }
+          if (sceneTag === 'detour') {
+            send({ type: 'RESUME_FLOW' })
+          }
+        }
+
         if (tag.startsWith('SOUND:')) {
           const sound = tag.replace('SOUND:', '').trim()
           if (sound === 'pressure_buildup') audio.playRupture()
@@ -240,7 +295,7 @@ export default function Shell({
         }
       }
     }
-  }, [ink, send, audio, atlas, lens, roleId])
+  }, [ink, send, audio, atlas, lens, roleId, morphQueue])
 
   // ── Field console handlers ──
   const handleLens = useCallback((l: LensId) => send({ type: 'SET_LENS', lens: l }), [send])
@@ -358,6 +413,8 @@ export default function Shell({
         erosionPct={householdImpact ? householdImpact.pct_of_income.base : 0}
         visible={stageVisible}
         activeRecipe={activeRecipe}
+        visualDomain={visualDomain}
+        flowFrozen={flowFrozen}
       />
 
       <div ref={storyStageRef} className="story-stage" style={{
