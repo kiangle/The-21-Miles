@@ -11,7 +11,7 @@ import ComparePanel from '../overlays/ComparePanel'
 import ConnectionReveal from '../overlays/ConnectionReveal'
 import FieldConsole from '../gameplay/console/FieldConsole'
 import ShareGenerator from '../gameplay/interactions/ShareGenerator'
-import { resolveRecipe, resolveRecipeByFocus, RECIPES } from '../stage/scene/SceneRecipe'
+import { resolveRecipe, resolveRecipeByFocus, RECIPES, LENS_FOCUS_MAP } from '../stage/scene/SceneRecipe'
 import type { SceneRecipe } from '../stage/scene/SceneRecipe'
 import { WORLD_ID, COLORS } from './config/constants'
 import type { SceneId, LensId, TimeId, FutureId } from '../state/machine/worldContext'
@@ -243,7 +243,16 @@ export default function Shell({
   }, [ink, send, audio, atlas, lens, roleId])
 
   // ── Field console handlers ──
-  const handleLens = useCallback((l: LensId) => send({ type: 'SET_LENS', lens: l }), [send])
+  const handleLens = useCallback((l: LensId) => {
+    send({ type: 'SET_LENS', lens: l })
+    // Lens switch drives camera to the appropriate geographic view
+    const focus = LENS_FOCUS_MAP[l]
+    if (focus) {
+      const recipe = resolveRecipeByFocus(focus, roleId, time)
+      setActiveRecipe(recipe)
+      setMapFocus(focus)
+    }
+  }, [send, roleId, time])
   const handleTime = useCallback((t: TimeId) => send({ type: 'SET_TIME', time: t }), [send])
   const handleFuture = useCallback((f: FutureId) => {
     send({ type: 'SET_FUTURE', future: f })

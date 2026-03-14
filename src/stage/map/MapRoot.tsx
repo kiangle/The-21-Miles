@@ -33,18 +33,16 @@ type Props = {
   onFlyToComplete?: () => void
 }
 
-// ── Map style: dark but legible — Earth must read as Earth ──
+// ── Map style: Carto Dark raster tiles + GeoJSON overlays ──
 const STYLE: maplibregl.StyleSpecification = {
   version: 8,
   projection: { type: 'globe' },
   sources: {
-    'world-land': {
-      type: 'geojson',
-      data: '/geo/world_land_110m.geojson',
-    },
-    'world-coast': {
-      type: 'geojson',
-      data: '/geo/world_coastline_110m.geojson',
+    'carto-dark': {
+      type: 'raster',
+      tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+      tileSize: 256,
+      attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
     },
     'kenya': {
       type: 'geojson',
@@ -72,27 +70,16 @@ const STYLE: maplibregl.StyleSpecification = {
   },
   layers: [
     {
-      id: 'bg',
-      type: 'background',
-      paint: { 'background-color': '#030810' },
-    },
-    {
-      id: 'world-land-fill',
-      type: 'fill',
-      source: 'world-land',
-      paint: { 'fill-color': '#141e30', 'fill-opacity': 1 },
-    },
-    {
-      id: 'world-coast-line',
-      type: 'line',
-      source: 'world-coast',
-      paint: { 'line-color': '#2a3d5c', 'line-width': 1.6, 'line-opacity': 0.9 },
+      id: 'carto-dark-tiles',
+      type: 'raster',
+      source: 'carto-dark',
+      paint: { 'raster-opacity': 1 },
     },
     {
       id: 'kenya-fill',
       type: 'fill',
       source: 'kenya',
-      paint: { 'fill-color': '#1a2640', 'fill-opacity': 0.85 },
+      paint: { 'fill-color': '#1a2640', 'fill-opacity': 0.5 },
     },
     {
       id: 'kenya-border',

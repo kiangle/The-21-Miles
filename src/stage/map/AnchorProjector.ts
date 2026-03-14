@@ -16,14 +16,30 @@ export interface ProjectedAnchor {
 }
 
 const DEFAULT_ANCHORS: Array<{ id: string; lngLat: [number, number] }> = [
-  { id: 'hormuz',      lngLat: [56.3, 26.5] },
-  { id: 'babElMandeb', lngLat: [43.3, 12.6] },
-  { id: 'mombasa',     lngLat: [39.67, -4.05] },
-  { id: 'nairobi',     lngLat: [36.82, -1.29] },
-  { id: 'hospital',    lngLat: [36.78, -1.30] },
-  { id: 'corridorQ1',  lngLat: [39.0, -3.3] },
-  { id: 'corridorMid', lngLat: [38.2, -2.5] },
-  { id: 'corridorQ3',  lngLat: [37.5, -1.8] },
+  // Chokepoints
+  { id: 'hormuz',         lngLat: [56.3, 26.5] },
+  { id: 'babElMandeb',    lngLat: [43.3, 12.6] },
+  // Shipping route waypoints (Hormuz → Mombasa)
+  { id: 'route_gulf',     lngLat: [54, 24] },
+  { id: 'route_arabian',  lngLat: [51, 18] },
+  { id: 'route_socotra',  lngLat: [48, 12] },
+  { id: 'route_indian1',  lngLat: [45, 5] },
+  { id: 'route_indian2',  lngLat: [43, 0] },
+  { id: 'route_approach', lngLat: [41, -2] },
+  // Cape reroute waypoints
+  { id: 'cape_aden',      lngLat: [48, 10] },
+  { id: 'cape_somali',    lngLat: [50, 2] },
+  { id: 'cape_equator',   lngLat: [48, -5] },
+  { id: 'cape_mozambique', lngLat: [42, -15] },
+  { id: 'cape_south',     lngLat: [30, -34] },
+  { id: 'cape_west',      lngLat: [18, -35] },
+  // Kenya
+  { id: 'mombasa',        lngLat: [39.67, -4.05] },
+  { id: 'nairobi',        lngLat: [36.82, -1.29] },
+  { id: 'hospital',       lngLat: [36.78, -1.30] },
+  { id: 'corridorQ1',     lngLat: [39.0, -3.3] },
+  { id: 'corridorMid',    lngLat: [38.2, -2.5] },
+  { id: 'corridorQ3',     lngLat: [37.5, -1.8] },
 ]
 
 export class AnchorProjector {

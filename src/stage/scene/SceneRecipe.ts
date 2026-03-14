@@ -10,7 +10,7 @@
  * Nothing else decides what's visible. Only the active recipe.
  */
 
-export type MapFocus = 'world' | 'kenya' | 'corridor' | 'mombasa' | 'nairobi'
+export type MapFocus = 'world' | 'kenya' | 'corridor' | 'mombasa' | 'nairobi' | 'shipping'
 export type LensType = 'shipping' | 'freight' | 'medicine' | 'month'
 export type Perspective = 'amara' | 'joseph' | null
 export type TimeSlice = 'day1' | 'day3' | 'week1' | 'month1'
@@ -43,10 +43,19 @@ export const MAP_FOCUS_PRESETS: Record<MapFocus, {
   bearing: number
 }> = {
   world:    { center: [42, 15],        zoom: 1.8,  pitch: 0,   bearing: 0 },
+  shipping: { center: [50, 5],         zoom: 3.0,  pitch: 5,   bearing: 0 },
   kenya:    { center: [37.6, -1.4],    zoom: 4.8,  pitch: 10,  bearing: 0 },
   corridor: { center: [38.2, -2.5],    zoom: 6.6,  pitch: 20,  bearing: -12 },
   mombasa:  { center: [39.67, -4.05],  zoom: 8.5,  pitch: 30,  bearing: -10 },
   nairobi:  { center: [36.82, -1.29],  zoom: 8.7,  pitch: 30,  bearing: 10 },
+}
+
+/** Map a lens to the appropriate camera focus for that domain. */
+export const LENS_FOCUS_MAP: Record<string, MapFocus> = {
+  shipping:  'shipping',
+  freight:   'corridor',
+  medicine:  'kenya',
+  household: 'nairobi',
 }
 
 // ── Recipe catalog ──
@@ -79,6 +88,36 @@ export const RECIPES: Record<string, SceneRecipe> = {
     emitterMode: 'off',
     constraintMode: 'none',
     pressure: 0.1,
+  },
+
+  shipping_day1: {
+    id: 'shipping_day1',
+    phase: 'landed',
+    mapFocus: 'shipping',
+    lens: 'shipping',
+    perspective: null,
+    time: 'day1',
+    narrativeBeatId: 'shipping_overview',
+    visibleLayers: ['basemap', 'shippingRoutes', 'chokepoints', 'vessels'],
+    actorMode: 'ships',
+    emitterMode: 'steady',
+    constraintMode: 'lane',
+    pressure: 0.2,
+  },
+
+  shipping_week1: {
+    id: 'shipping_week1',
+    phase: 'landed',
+    mapFocus: 'shipping',
+    lens: 'shipping',
+    perspective: null,
+    time: 'week1',
+    narrativeBeatId: 'shipping_disrupted',
+    visibleLayers: ['basemap', 'shippingRoutes', 'chokepoints', 'vessels', 'capeReroute'],
+    actorMode: 'ships',
+    emitterMode: 'bursts',
+    constraintMode: 'lane',
+    pressure: 0.7,
   },
 
   amara_medicine_day1: {
@@ -172,7 +211,7 @@ export function resolveRecipeByFocus(
   // Find best matching recipe for this focus + role
   const perspective = role === 'nurse' ? 'amara' : role === 'driver' ? 'joseph' : null
   const candidates = Object.values(RECIPES).filter(r =>
-    r.mapFocus === focus && (r.perspective === perspective || r.perspective === null)
+    r.mapFocus === focus && r.phase === 'landed' && (r.perspective === perspective || r.perspective === null)
   )
   // Prefer time match, then any
   const exact = candidates.find(r => r.time === time)
@@ -203,6 +242,12 @@ export function resolveRecipe(
   if (role === 'driver') {
     if (time === 'day1' || time === 'day3') return RECIPES.joseph_freight_day1
     return RECIPES.joseph_freight_week1
+  }
+
+  // Fallback: if baseline scene with no role yet, show shipping
+  if (scene === 'baseline') {
+    if (time === 'day1' || time === 'day3') return RECIPES.shipping_day1
+    return RECIPES.shipping_week1
   }
 
   return RECIPES.globe_context
