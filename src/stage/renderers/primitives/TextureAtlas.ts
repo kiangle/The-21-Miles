@@ -30,6 +30,7 @@ export class TextureAtlas {
   private constructor(renderer: PIXI.IRenderer) {
     this.renderer = renderer
     this.build()
+    console.log('[TextureAtlas] Generated', this.textures.size, 'textures')
   }
 
   /** Singleton accessor. Pass app.renderer from any scene that has it. */
@@ -56,14 +57,10 @@ export class TextureAtlas {
   // ── Build all textures ──────────────────────────────────────────────
 
   private build() {
-    try {
-      this.buildShip()
-      this.buildTruck()
-      this.buildMedicine()
-      this.buildParticles()
-    } catch (_e) {
-      // Graceful degradation — scenes will use PIXI.Texture.WHITE
-    }
+    this.buildShip()
+    this.buildTruck()
+    this.buildMedicine()
+    this.buildParticles()
   }
 
   // ── Ship (top-down ~28px drawn at 2×) ───────────────────────────────

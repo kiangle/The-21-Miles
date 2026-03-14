@@ -2,7 +2,6 @@ import * as PIXI from 'pixi.js'
 import Matter from 'matter-js'
 import type { SceneRecipe } from '../SceneRecipe'
 import type { ActiveScene, SceneCtx } from '../SceneRecipeController'
-import { drawMedicineMiniature } from '../../renderers/primitives/MiniatureFactory'
 import { TextureAtlas } from '../../renderers/primitives/TextureAtlas'
 import { ActorPool } from '../../renderers/primitives/ActorPool'
 
@@ -16,6 +15,9 @@ import { ActorPool } from '../../renderers/primitives/ActorPool'
  *
  * When pressure is low (day1): steady rhythm, shelf full.
  * When pressure rises (week1): missed beats, shelf depleting.
+ *
+ * Rendering: TextureAtlas + ActorPool.
+ * No MiniatureFactory fallback — TextureAtlas is the only code path.
  */
 
 interface MedicineBody {
@@ -38,10 +40,8 @@ export class MedicineScene implements ActiveScene {
   private lastEmitTime = 0
   private shelfLevel: number
 
-  // ── New rendering primitives ──
-  private atlas: TextureAtlas | null = null
-  private actorPool: ActorPool | null = null
-  private useNewRendering = false
+  private atlas: TextureAtlas
+  private actorPool: ActorPool
 
   constructor(recipe: SceneRecipe, ctx: SceneCtx) {
     this.id = recipe.id
@@ -61,18 +61,13 @@ export class MedicineScene implements ActiveScene {
     this.container.addChild(this.shelfGfx)
     this.container.addChild(this.heartbeatGfx)
 
-    // Initialize texture-based rendering (graceful fallback)
-    try {
-      this.atlas = TextureAtlas.get(ctx.app.renderer)
-      this.actorPool = new ActorPool(this.container, 14, {
-        texture: this.atlas.tex('medicine'),
-        glowTexture: this.atlas.tex('medicine_glow'),
-        scale: 0.5,
-      })
-      this.useNewRendering = true
-    } catch (_e) {
-      this.useNewRendering = false
-    }
+    // TextureAtlas — no try/catch, let errors surface
+    this.atlas = TextureAtlas.get(ctx.app.renderer)
+    this.actorPool = new ActorPool(this.container, 14, {
+      texture: this.atlas.tex('medicine'),
+      glowTexture: this.atlas.tex('medicine_glow'),
+      scale: 0.5,
+    })
 
     this.setupPhysics()
     this.drawPath()
@@ -185,9 +180,6 @@ export class MedicineScene implements ActiveScene {
       this.shelfGfx.drawRoundedRect(sx - 1, sy - 1, barW + 2, barH + 2, 3)
       this.shelfGfx.lineStyle(0)
     }
-
-    // Label
-    // (Text labels would require PIXI.Text — keep it minimal for now)
   }
 
   private drawHeartbeat() {
@@ -263,25 +255,15 @@ export class MedicineScene implements ActiveScene {
     // Shelf depletion over time
     this.shelfLevel = Math.max(0, this.shelfLevel - dt * 0.02 * (1 + this.recipe.pressure))
 
-    // Draw
+    // Draw — TextureAtlas + ActorPool only
     this.actorGfx.clear()
-    if (this.useNewRendering && this.actorPool) {
-      // Sprite-based medicine packets
-      for (let i = 0; i < this.bodies.length; i++) {
-        const mb = this.bodies[i]
-        const bx = mb.body.position.x
-        const by = mb.body.position.y
-        const id = `m${i}`
-        this.actorPool.activate(id, bx, by, mb.body.angle, 0.85)
-        this.actorPool.updateActor(id, bx, by, mb.body.angle, 0.85, 0.5)
-      }
-    } else {
-      // Fallback: original MiniatureFactory drawing
-      for (const mb of this.bodies) {
-        const bx = mb.body.position.x
-        const by = mb.body.position.y
-        drawMedicineMiniature(this.actorGfx, bx, by, mb.body.angle, 1.0, 0.85)
-      }
+    for (let i = 0; i < this.bodies.length; i++) {
+      const mb = this.bodies[i]
+      const bx = mb.body.position.x
+      const by = mb.body.position.y
+      const id = `m${i}`
+      this.actorPool.activate(id, bx, by, mb.body.angle, 0.85)
+      this.actorPool.updateActor(id, bx, by, mb.body.angle, 0.85, 0.5)
     }
 
     this.drawShelf()
@@ -302,8 +284,7 @@ export class MedicineScene implements ActiveScene {
       Matter.Composite.remove(this.engine.world, w)
     }
     this.guideWalls = []
-    if (this.actorPool) { this.actorPool.dispose(); this.actorPool = null }
-    this.useNewRendering = false
+    this.actorPool.dispose()
     // Remove Pixi container
     this.container.destroy({ children: true })
   }

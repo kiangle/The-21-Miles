@@ -2,7 +2,6 @@ import * as PIXI from 'pixi.js'
 import Matter from 'matter-js'
 import type { SceneRecipe } from '../SceneRecipe'
 import type { ActiveScene, SceneCtx } from '../SceneRecipeController'
-import { drawTruckMiniature } from '../../renderers/primitives/MiniatureFactory'
 import { TextureAtlas } from '../../renderers/primitives/TextureAtlas'
 import { ActorPool } from '../../renderers/primitives/ActorPool'
 import { WakeTrailSystem } from '../../renderers/primitives/WakeTrailSystem'
@@ -14,6 +13,9 @@ import { WakeTrailSystem } from '../../renderers/primitives/WakeTrailSystem'
  * Bottleneck gate at 40% along the corridor.
  * Convoy burst emission pattern.
  * Depot glow at Mombasa, destination glow at Nairobi.
+ *
+ * Rendering: TextureAtlas + ActorPool + WakeTrailSystem (dust).
+ * No MiniatureFactory fallback — TextureAtlas is the only code path.
  */
 
 interface TruckBody {
@@ -36,11 +38,9 @@ export class FreightScene implements ActiveScene {
   private lastBurstTime = 0
   private burstCount = 0
 
-  // ── New rendering primitives ──
-  private atlas: TextureAtlas | null = null
-  private actorPool: ActorPool | null = null
-  private dustSystem: WakeTrailSystem | null = null
-  private useNewRendering = false
+  private atlas: TextureAtlas
+  private actorPool: ActorPool
+  private dustSystem: WakeTrailSystem
 
   constructor(recipe: SceneRecipe, ctx: SceneCtx) {
     this.id = recipe.id
@@ -57,21 +57,16 @@ export class FreightScene implements ActiveScene {
     this.container.addChild(this.bloomGfx)
     this.container.addChild(this.actorGfx)
 
-    // Initialize texture-based rendering (graceful fallback)
-    try {
-      this.atlas = TextureAtlas.get(ctx.app.renderer)
-      this.dustSystem = new WakeTrailSystem(
-        this.container, this.atlas.tex('dust_particle'), 200,
-      )
-      this.actorPool = new ActorPool(this.container, 20, {
-        texture: this.atlas.tex('truck'),
-        glowTexture: this.atlas.tex('truck_glow'),
-        scale: 0.55,
-      })
-      this.useNewRendering = true
-    } catch (_e) {
-      this.useNewRendering = false
-    }
+    // TextureAtlas — no try/catch, let errors surface
+    this.atlas = TextureAtlas.get(ctx.app.renderer)
+    this.dustSystem = new WakeTrailSystem(
+      this.container, this.atlas.tex('dust_particle'), 200,
+    )
+    this.actorPool = new ActorPool(this.container, 20, {
+      texture: this.atlas.tex('truck'),
+      glowTexture: this.atlas.tex('truck_glow'),
+      scale: 0.55,
+    })
 
     this.setupCorridor()
     this.drawCorridor()
@@ -237,55 +232,37 @@ export class FreightScene implements ActiveScene {
       return true
     })
 
-    // Draw actors
+    // Draw actors — TextureAtlas + ActorPool + WakeTrailSystem only
     this.actorGfx.clear()
     this.bloomGfx.clear()
 
-    if (this.useNewRendering && this.actorPool && this.dustSystem) {
-      // Sprite-based trucks + dust particles
-      for (let i = 0; i < this.bodies.length; i++) {
-        const tb = this.bodies[i]
-        const bx = tb.body.position.x
-        const by = tb.body.position.y
-        const speed = Math.sqrt(tb.body.velocity.x ** 2 + tb.body.velocity.y ** 2)
+    for (let i = 0; i < this.bodies.length; i++) {
+      const tb = this.bodies[i]
+      const bx = tb.body.position.x
+      const by = tb.body.position.y
+      const speed = Math.sqrt(tb.body.velocity.x ** 2 + tb.body.velocity.y ** 2)
 
-        // Stressed truck halo (still drawn via Graphics for bloom layer)
-        if (speed < 0.5 && this.recipe.pressure > 0.3) {
-          this.bloomGfx.beginFill(0xD4763C, 0.08)
-          this.bloomGfx.drawCircle(bx, by, 8)
-          this.bloomGfx.endFill()
-        }
-
-        const id = `t${i}`
-        const scale = 0.55 * 1.1
-        this.actorPool.activate(id, bx, by, tb.prevAngle, 0.85)
-        this.actorPool.updateActor(id, bx, by, tb.prevAngle, 0.85, scale)
-
-        // Dust trail behind moving trucks
-        if (speed > 0.2) {
-          this.dustSystem.emit(
-            bx, by, tb.body.velocity.x, tb.body.velocity.y, 0xd4a15d, 1,
-          )
-        }
+      // Stressed truck halo when slow near bottleneck
+      if (speed < 0.5 && this.recipe.pressure > 0.3) {
+        this.bloomGfx.beginFill(0xD4763C, 0.08)
+        this.bloomGfx.drawCircle(bx, by, 8)
+        this.bloomGfx.endFill()
       }
 
-      this.dustSystem.update(dt)
-    } else {
-      // Fallback: original MiniatureFactory drawing
-      for (const tb of this.bodies) {
-        const bx = tb.body.position.x
-        const by = tb.body.position.y
-        const speed = Math.sqrt(tb.body.velocity.x ** 2 + tb.body.velocity.y ** 2)
+      const id = `t${i}`
+      const scale = 0.55 * 1.1
+      this.actorPool.activate(id, bx, by, tb.prevAngle, 0.85)
+      this.actorPool.updateActor(id, bx, by, tb.prevAngle, 0.85, scale)
 
-        if (speed < 0.5 && this.recipe.pressure > 0.3) {
-          this.bloomGfx.beginFill(0xD4763C, 0.08)
-          this.bloomGfx.drawCircle(bx, by, 8)
-          this.bloomGfx.endFill()
-        }
-
-        drawTruckMiniature(this.actorGfx, bx, by, tb.prevAngle, 1.1, 0.85)
+      // Dust trail behind moving trucks
+      if (speed > 0.2) {
+        this.dustSystem.emit(
+          bx, by, tb.body.velocity.x, tb.body.velocity.y, 0xd4a15d, 1,
+        )
       }
     }
+
+    this.dustSystem.update(dt)
   }
 
   resize() {
@@ -301,9 +278,8 @@ export class FreightScene implements ActiveScene {
       Matter.Composite.remove(this.engine.world, w)
     }
     this.corridorWalls = []
-    if (this.actorPool) { this.actorPool.dispose(); this.actorPool = null }
-    if (this.dustSystem) { this.dustSystem.dispose(); this.dustSystem = null }
-    this.useNewRendering = false
+    this.actorPool.dispose()
+    this.dustSystem.dispose()
     this.container.destroy({ children: true })
   }
 }

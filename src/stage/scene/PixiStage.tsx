@@ -12,6 +12,7 @@ import type { SceneRecipe } from './SceneRecipe'
 import { MedicineScene } from './recipes/MedicineScene'
 import { FreightScene } from './recipes/FreightScene'
 import { MonthScene } from './recipes/MonthScene'
+import { ShippingScene } from './recipes/ShippingScene'
 import type { SceneId, TimeId, FutureId } from '../../state/machine/worldContext'
 
 /**
@@ -56,6 +57,8 @@ function createScene(recipe: SceneRecipe, ctx: SceneCtx) {
   if (recipe.phase !== 'landed') return null
 
   switch (recipe.actorMode) {
+    case 'ships':
+      return new ShippingScene(recipe, ctx)
     case 'medicine':
       return new MedicineScene(recipe, ctx)
     case 'convoys':

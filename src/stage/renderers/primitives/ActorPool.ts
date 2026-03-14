@@ -69,6 +69,7 @@ export class ActorPool {
    * Activate a sprite by external ID. Returns pool index or -1 if full.
    */
   activate(id: string, x: number, y: number, rotation: number, alpha = 1): number {
+    console.log('[ActorPool] Activated actor', id)
     // Already active?
     const existing = this.idMap.get(id)
     if (existing !== undefined) {
