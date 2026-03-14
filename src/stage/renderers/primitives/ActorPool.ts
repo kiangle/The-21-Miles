@@ -34,7 +34,6 @@ export class ActorPool {
     this.config = config
 
     this.glowContainer = new PIXI.Container()
-    this.glowContainer.blendMode = PIXI.BLEND_MODES.ADD
     parent.addChild(this.glowContainer)
 
     this.container = new PIXI.Container()
@@ -57,6 +56,7 @@ export class ActorPool {
         glowSprite.anchor.set(0.5, 0.5)
         glowSprite.scale.set(baseScale * 1.5)
         glowSprite.alpha = 0.5
+        glowSprite.blendMode = PIXI.BLEND_MODES.ADD
         glowSprite.visible = false
         this.glowContainer.addChild(glowSprite)
       }
