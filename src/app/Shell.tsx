@@ -11,7 +11,8 @@ import ComparePanel from '../overlays/ComparePanel'
 import ConnectionReveal from '../overlays/ConnectionReveal'
 import FieldConsole from '../gameplay/console/FieldConsole'
 import ShareGenerator from '../gameplay/interactions/ShareGenerator'
-import { resolveRecipe } from '../stage/scene/SceneRecipe'
+import { resolveRecipe, resolveRecipeByFocus, RECIPES } from '../stage/scene/SceneRecipe'
+import type { SceneRecipe } from '../stage/scene/SceneRecipe'
 import { WORLD_ID, COLORS } from './config/constants'
 import type { SceneId, LensId, TimeId, FutureId } from '../state/machine/worldContext'
 import type { BootstrapResponse, HouseholdImpactResponse, WhatIfResponse, LiveParameters, ConnectionDiscovery, WhatIfSummary } from '../atlas/types'
@@ -67,6 +68,7 @@ export default function Shell({
   const [showEntryUI, setShowEntryUI] = useState(false)
   const [showRoleSelect, setShowRoleSelect] = useState(false)
   const [mapFocus, setMapFocus] = useState<MapFocus>('world')
+  const [activeRecipe, setActiveRecipe] = useState<SceneRecipe | null>(null)
 
   // Derived: globe phase = entry or flyTo (interactive globe rotation)
   const globePhase = scene === 'entry' || scene === 'flyTo'
@@ -140,6 +142,7 @@ export default function Shell({
           send({ type: 'SET_LENS', lens: targetLens })
           send({ type: 'SET_TIME', time: targetTime })
           const recipe = resolveRecipe(zone, roleId, targetTime as any)
+          setActiveRecipe(recipe)
           setMapFocus(recipe.mapFocus)
         }
       },
@@ -154,8 +157,9 @@ export default function Shell({
     send({ type: 'SELECT_ROLE', roleId: role, profileId })
     setShowRoleSelect(false)
 
-    // Update map focus based on selected role's recipe
+    // Update map focus and active recipe for selected role
     const recipe = resolveRecipe('baseline', role, 'day1')
+    setActiveRecipe(recipe)
     setMapFocus(recipe.mapFocus)
 
     const narrativePack = bootstrap?.narrative_pack || 'kenya'
@@ -219,11 +223,19 @@ export default function Shell({
         }
         if (tag === 'SPLIT_SCREEN: true') send({ type: 'TOGGLE_COMPARE' })
         if (tag === 'GENERATE_CLIP: true') send({ type: 'ADVANCE_SCENE', scene: 'share' })
-        // Ink → recipe map focus
+        // Ink → recipe: set both mapFocus AND active recipe
         if (tag.startsWith('RECIPE:')) {
-          const focus = tag.replace('RECIPE:', '').trim()
-          if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor'].includes(focus)) {
-            setMapFocus(focus as MapFocus)
+          const value = tag.replace('RECIPE:', '').trim()
+          // Allow direct recipe IDs (e.g. RECIPE: amara_medicine_week1)
+          if (RECIPES[value]) {
+            const recipe = RECIPES[value]
+            setActiveRecipe(recipe)
+            setMapFocus(recipe.mapFocus)
+          } else if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor'].includes(value)) {
+            // Focus-based: resolve best recipe for current role + time
+            const recipe = resolveRecipeByFocus(value as MapFocus, roleId, time)
+            setActiveRecipe(recipe)
+            setMapFocus(value as MapFocus)
           }
         }
       }
@@ -345,6 +357,7 @@ export default function Shell({
         supplyLevel={worldMetrics.medicinePressure}
         erosionPct={householdImpact ? householdImpact.pct_of_income.base : 0}
         visible={stageVisible}
+        activeRecipe={activeRecipe}
       />
 
       <div ref={storyStageRef} className="story-stage" style={{

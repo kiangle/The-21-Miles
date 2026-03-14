@@ -52,6 +52,15 @@ export class SceneRecipeController {
     this.active = this.factory(recipe, ctx)
   }
 
+  /**
+   * Force-apply: rebuild the scene even if the recipe ID hasn't changed.
+   * Used when projected anchors move but the recipe stays the same.
+   */
+  forceApply(recipe: SceneRecipe, ctx: SceneCtx) {
+    this.reset(ctx)
+    this.active = this.factory(recipe, ctx)
+  }
+
   /** Update the active scene. */
   update(dt: number) {
     this.active?.update(dt)

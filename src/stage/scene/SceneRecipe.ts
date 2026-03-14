@@ -161,6 +161,27 @@ export const RECIPES: Record<string, SceneRecipe> = {
 }
 
 /**
+ * Resolve recipe from a mapFocus value + role + time.
+ * Used when ink RECIPE tags fire with a focus name.
+ */
+export function resolveRecipeByFocus(
+  focus: MapFocus,
+  role: 'nurse' | 'driver' | null,
+  time: TimeSlice,
+): SceneRecipe {
+  // Find best matching recipe for this focus + role
+  const perspective = role === 'nurse' ? 'amara' : role === 'driver' ? 'joseph' : null
+  const candidates = Object.values(RECIPES).filter(r =>
+    r.mapFocus === focus && (r.perspective === perspective || r.perspective === null)
+  )
+  // Prefer time match, then any
+  const exact = candidates.find(r => r.time === time)
+  if (exact) return exact
+  if (candidates.length > 0) return candidates[0]
+  return RECIPES.globe_context
+}
+
+/**
  * Resolve the best recipe for a given state combination.
  */
 export function resolveRecipe(

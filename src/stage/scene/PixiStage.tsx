@@ -7,7 +7,7 @@ import gsap from 'gsap'
 import { SceneRecipeController } from './SceneRecipeController'
 import type { SceneCtx } from './SceneRecipeController'
 import { getAnchorProjector } from '../map/AnchorProjector'
-import { resolveRecipe, RECIPES } from './SceneRecipe'
+import { resolveRecipe } from './SceneRecipe'
 import type { SceneRecipe } from './SceneRecipe'
 import { MedicineScene } from './recipes/MedicineScene'
 import { FreightScene } from './recipes/FreightScene'
@@ -33,6 +33,7 @@ interface PixiStageProps {
   supplyLevel: number
   erosionPct: number
   visible: boolean
+  activeRecipe?: SceneRecipe | null
 }
 
 const TIME_PRESSURE: Record<TimeId, number> = {
@@ -68,7 +69,7 @@ function createScene(recipe: SceneRecipe, ctx: SceneCtx) {
 
 export default function PixiStage({
   scene, lens, time, future, roleId,
-  visible,
+  visible, activeRecipe: activeRecipeProp,
 }: PixiStageProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const appRef = useRef<PIXI.Application | null>(null)
@@ -149,8 +150,8 @@ export default function PixiStage({
 
     const projector = getAnchorProjector()
 
-    // Do not render landed recipes until anchors are ready
-    const recipe = resolveRecipe(scene, roleId, time as any)
+    // Use activeRecipe from Shell when available, otherwise resolve
+    const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any)
     if (recipe.phase === 'landed' && !projector.ready) return
     if (recipe.id === prevRecipeRef.current) return
     prevRecipeRef.current = recipe.id
@@ -165,27 +166,27 @@ export default function PixiStage({
 
     // Scene choreography
     applySceneChoreography(scene, appRef.current, atmosphereRef.current)
-  }, [scene, roleId, time, lens])
+  }, [scene, roleId, time, lens, activeRecipeProp])
 
   // ── Re-apply recipe when anchors update (map camera moves) ──
   useEffect(() => {
     const projector = getAnchorProjector()
     const unsub = projector.onUpdate(() => {
       if (!controllerRef.current || !appRef.current || !engineRef.current) return
-      // Re-resolve and re-apply with fresh anchors if recipe changed
-      const recipe = resolveRecipe(scene, roleId, time as any)
-      if (recipe.phase === 'landed' && recipe.id !== prevRecipeRef.current) {
-        prevRecipeRef.current = recipe.id
-        const ctx: SceneCtx = {
-          app: appRef.current,
-          matterEngine: engineRef.current,
-          anchors: projector.getAll(),
-        }
-        controllerRef.current.apply(recipe, ctx)
+      const recipe = activeRecipeProp ?? resolveRecipe(scene, roleId, time as any)
+      if (recipe.phase !== 'landed') return
+      // Always rebuild with fresh anchors — even if recipe ID is the same,
+      // the projected positions have changed and the scene must update.
+      prevRecipeRef.current = recipe.id
+      const ctx: SceneCtx = {
+        app: appRef.current,
+        matterEngine: engineRef.current,
+        anchors: projector.getAll(),
       }
+      controllerRef.current.forceApply(recipe, ctx)
     })
     return unsub
-  }, [scene, roleId, time])
+  }, [scene, roleId, time, activeRecipeProp])
 
   // ── Pressure from time + future ──
   useEffect(() => {
