@@ -62,20 +62,14 @@ export class AnchorProjector {
     this.detach()
     this.map = map
     this.reprojectAll()
-    map.on('move', this.reprojectAll)
+    map.on('moveend', this.reprojectAll)
     map.on('resize', this.reprojectAll)
-    map.on('zoom', this.reprojectAll)
-    map.on('rotate', this.reprojectAll)
-    map.on('pitch', this.reprojectAll)
   }
 
   detach = () => {
     if (!this.map) return
-    this.map.off('move', this.reprojectAll)
+    this.map.off('moveend', this.reprojectAll)
     this.map.off('resize', this.reprojectAll)
-    this.map.off('zoom', this.reprojectAll)
-    this.map.off('rotate', this.reprojectAll)
-    this.map.off('pitch', this.reprojectAll)
     this.map = null
     this._ready = false
   }
