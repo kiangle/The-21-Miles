@@ -40,17 +40,17 @@ function poly(g: PIXI.Graphics, pts: [number, number][], color: number, alpha: n
   g.endFill()
 }
 
-// ── Ship miniature (top-down ~24px at scale 1.0) ─────────────────────
-// Bigger hull, visible bridge, readable at medium zoom
+// ── Ship miniature (top-down ~36px at scale 1.0) ─────────────────────
+// Large hull, visible bridge, clearly readable at Indian Ocean zoom
 
 const SHIP_HULL: [number, number][] = [
-  [-10, 0], [-7, -4.5], [8, -4.5], [13, 0], [8, 4.5], [-7, 4.5],
+  [-15, 0], [-10.5, -6.75], [12, -6.75], [19.5, 0], [12, 6.75], [-10.5, 6.75],
 ]
 const SHIP_BRIDGE: [number, number][] = [
-  [-3, -2.5], [5, -2.5], [5, 2.5], [-3, 2.5],
+  [-4.5, -3.75], [7.5, -3.75], [7.5, 3.75], [-4.5, 3.75],
 ]
 const SHIP_BOW: [number, number][] = [
-  [8, -3], [14, 0], [8, 3],
+  [12, -4.5], [21, 0], [12, 4.5],
 ]
 
 export function drawShipMiniature(
@@ -59,7 +59,7 @@ export function drawShipMiniature(
 ) {
   // Soft underglow — larger, more visible
   g.beginFill(0xb9d7ff, 0.08 * alpha)
-  g.drawEllipse(x, y, 14 * scale, 7 * scale)
+  g.drawEllipse(x, y, 22 * scale, 11 * scale)
   g.endFill()
 
   // Hull
@@ -70,6 +70,17 @@ export function drawShipMiniature(
 
   // Bow highlight
   poly(g, tx(SHIP_BOW, x, y, angle, scale), 0xeaf4ff, 0.5 * alpha)
+
+  // Navigation lights — red at stern (port), green at bow
+  const portLight = tx([[-12, -5.5]], x, y, angle, scale)
+  g.beginFill(0xff3333, 0.7 * alpha)
+  g.drawCircle(portLight[0][0], portLight[0][1], 1.5 * scale)
+  g.endFill()
+
+  const bowLight = tx([[16, 0]], x, y, angle, scale)
+  g.beginFill(0x33ff66, 0.6 * alpha)
+  g.drawCircle(bowLight[0][0], bowLight[0][1], 1.5 * scale)
+  g.endFill()
 }
 
 // ── Truck miniature (top-down ~22px at scale 1.0) ────────────────────

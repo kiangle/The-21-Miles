@@ -59,6 +59,100 @@ export const LENS_FOCUS_MAP: Record<string, MapFocus> = {
 }
 
 // ── Recipe catalog ──
+
+// Base recipes (perspective-neutral or primary perspective)
+const _shipping_day1: SceneRecipe = {
+  id: 'shipping_day1',
+  phase: 'landed',
+  mapFocus: 'shipping',
+  lens: 'shipping',
+  perspective: null,
+  time: 'day1',
+  narrativeBeatId: 'shipping_overview',
+  visibleLayers: ['basemap', 'shippingRoutes', 'chokepoints', 'vessels'],
+  actorMode: 'ships',
+  emitterMode: 'steady',
+  constraintMode: 'lane',
+  pressure: 0.2,
+}
+
+const _shipping_week1: SceneRecipe = {
+  id: 'shipping_week1',
+  phase: 'landed',
+  mapFocus: 'shipping',
+  lens: 'shipping',
+  perspective: null,
+  time: 'week1',
+  narrativeBeatId: 'shipping_disrupted',
+  visibleLayers: ['basemap', 'shippingRoutes', 'chokepoints', 'vessels', 'capeReroute'],
+  actorMode: 'ships',
+  emitterMode: 'bursts',
+  constraintMode: 'lane',
+  pressure: 0.7,
+}
+
+const _amara_medicine_day1: SceneRecipe = {
+  id: 'amara_medicine_day1',
+  phase: 'landed',
+  mapFocus: 'nairobi',
+  lens: 'medicine',
+  perspective: 'amara',
+  time: 'day1',
+  narrativeBeatId: 'nurse_intro',
+  visibleLayers: ['basemap', 'corridorGhost', 'medicineLine', 'shelf'],
+  actorMode: 'medicine',
+  emitterMode: 'steady',
+  constraintMode: 'pulse',
+  shelfLevel: 1,
+  pressure: 0.12,
+}
+
+const _amara_medicine_week1: SceneRecipe = {
+  id: 'amara_medicine_week1',
+  phase: 'landed',
+  mapFocus: 'corridor',
+  lens: 'medicine',
+  perspective: 'amara',
+  time: 'week1',
+  narrativeBeatId: 'medicine_path',
+  visibleLayers: ['basemap', 'corridorGhost', 'medicineLine', 'shelf'],
+  actorMode: 'medicine',
+  emitterMode: 'sparse',
+  constraintMode: 'pulse',
+  shelfLevel: 0.4,
+  pressure: 0.7,
+}
+
+const _joseph_freight_day1: SceneRecipe = {
+  id: 'joseph_freight_day1',
+  phase: 'landed',
+  mapFocus: 'corridor',
+  lens: 'freight',
+  perspective: 'joseph',
+  time: 'day1',
+  narrativeBeatId: 'driver_intro',
+  visibleLayers: ['basemap', 'corridor', 'depot', 'convoys'],
+  actorMode: 'convoys',
+  emitterMode: 'steady',
+  constraintMode: 'corridor',
+  pressure: 0.2,
+}
+
+const _joseph_freight_week1: SceneRecipe = {
+  id: 'joseph_freight_week1',
+  phase: 'landed',
+  mapFocus: 'corridor',
+  lens: 'freight',
+  perspective: 'joseph',
+  time: 'week1',
+  narrativeBeatId: 'detour',
+  visibleLayers: ['basemap', 'corridor', 'depot', 'convoys'],
+  actorMode: 'convoys',
+  emitterMode: 'bursts',
+  constraintMode: 'corridor',
+  pressure: 0.68,
+}
+
 export const RECIPES: Record<string, SceneRecipe> = {
   globe_context: {
     id: 'globe_context',
@@ -90,97 +184,33 @@ export const RECIPES: Record<string, SceneRecipe> = {
     pressure: 0.1,
   },
 
-  shipping_day1: {
-    id: 'shipping_day1',
-    phase: 'landed',
-    mapFocus: 'shipping',
-    lens: 'shipping',
-    perspective: null,
-    time: 'day1',
-    narrativeBeatId: 'shipping_overview',
-    visibleLayers: ['basemap', 'shippingRoutes', 'chokepoints', 'vessels'],
-    actorMode: 'ships',
-    emitterMode: 'steady',
-    constraintMode: 'lane',
-    pressure: 0.2,
-  },
+  // Primary shipping recipes (no perspective)
+  shipping_day1: _shipping_day1,
+  shipping_week1: _shipping_week1,
 
-  shipping_week1: {
-    id: 'shipping_week1',
-    phase: 'landed',
-    mapFocus: 'shipping',
-    lens: 'shipping',
-    perspective: null,
-    time: 'week1',
-    narrativeBeatId: 'shipping_disrupted',
-    visibleLayers: ['basemap', 'shippingRoutes', 'chokepoints', 'vessels', 'capeReroute'],
-    actorMode: 'ships',
-    emitterMode: 'bursts',
-    constraintMode: 'lane',
-    pressure: 0.7,
-  },
+  // Nurse primary recipes
+  amara_medicine_day1: _amara_medicine_day1,
+  amara_medicine_week1: _amara_medicine_week1,
 
-  amara_medicine_day1: {
-    id: 'amara_medicine_day1',
-    phase: 'landed',
-    mapFocus: 'nairobi',
-    lens: 'medicine',
-    perspective: 'amara',
-    time: 'day1',
-    narrativeBeatId: 'nurse_intro',
-    visibleLayers: ['basemap', 'corridorGhost', 'medicineLine', 'shelf'],
-    actorMode: 'medicine',
-    emitterMode: 'steady',
-    constraintMode: 'pulse',
-    shelfLevel: 1,
-    pressure: 0.12,
-  },
+  // Driver primary recipes
+  joseph_freight_day1: _joseph_freight_day1,
+  joseph_freight_week1: _joseph_freight_week1,
 
-  amara_medicine_week1: {
-    id: 'amara_medicine_week1',
-    phase: 'landed',
-    mapFocus: 'corridor',
-    lens: 'medicine',
-    perspective: 'amara',
-    time: 'week1',
-    narrativeBeatId: 'medicine_path',
-    visibleLayers: ['basemap', 'corridorGhost', 'medicineLine', 'shelf'],
-    actorMode: 'medicine',
-    emitterMode: 'sparse',
-    constraintMode: 'pulse',
-    shelfLevel: 0.4,
-    pressure: 0.7,
-  },
+  // Cross-role: Nurse viewing shipping
+  amara_shipping_day1: { ..._shipping_day1, id: 'amara_shipping_day1', perspective: 'amara' },
+  amara_shipping_week1: { ..._shipping_week1, id: 'amara_shipping_week1', perspective: 'amara' },
 
-  joseph_freight_day1: {
-    id: 'joseph_freight_day1',
-    phase: 'landed',
-    mapFocus: 'corridor',
-    lens: 'freight',
-    perspective: 'joseph',
-    time: 'day1',
-    narrativeBeatId: 'driver_intro',
-    visibleLayers: ['basemap', 'corridor', 'depot', 'convoys'],
-    actorMode: 'convoys',
-    emitterMode: 'steady',
-    constraintMode: 'corridor',
-    pressure: 0.2,
-  },
+  // Cross-role: Nurse viewing freight
+  amara_freight_day1: { ..._joseph_freight_day1, id: 'amara_freight_day1', perspective: 'amara', lens: 'freight' },
+  amara_freight_week1: { ..._joseph_freight_week1, id: 'amara_freight_week1', perspective: 'amara', lens: 'freight' },
 
-  joseph_freight_week1: {
-    id: 'joseph_freight_week1',
-    phase: 'landed',
-    mapFocus: 'corridor',
-    lens: 'freight',
-    perspective: 'joseph',
-    time: 'week1',
-    narrativeBeatId: 'detour',
-    visibleLayers: ['basemap', 'corridor', 'depot', 'convoys'],
-    actorMode: 'convoys',
-    emitterMode: 'bursts',
-    constraintMode: 'corridor',
-    pressure: 0.68,
-  },
+  // Cross-role: Driver viewing shipping
+  joseph_shipping_day1: { ..._shipping_day1, id: 'joseph_shipping_day1', perspective: 'joseph' },
+  joseph_shipping_week1: { ..._shipping_week1, id: 'joseph_shipping_week1', perspective: 'joseph' },
+
+  // Cross-role: Driver viewing medicine
+  joseph_medicine_day1: { ..._amara_medicine_day1, id: 'joseph_medicine_day1', perspective: 'joseph', lens: 'medicine' },
+  joseph_medicine_week1: { ..._amara_medicine_week1, id: 'joseph_medicine_week1', perspective: 'joseph', lens: 'medicine' },
 
   month_squeeze_month1: {
     id: 'month_squeeze_month1',
@@ -222,11 +252,14 @@ export function resolveRecipeByFocus(
 
 /**
  * Resolve the best recipe for a given state combination.
+ * LENS is the primary driver — it determines what scene type is shown.
+ * Role determines perspective. Time selects the time variant.
  */
 export function resolveRecipe(
   scene: string,
   role: 'nurse' | 'driver' | null,
   time: TimeSlice,
+  lens: LensType = 'shipping',
 ): SceneRecipe {
   if (scene === 'entry') return RECIPES.globe_context
   if (scene === 'flyTo') return RECIPES.kenya_focus
@@ -235,20 +268,34 @@ export function resolveRecipe(
     return RECIPES.month_squeeze_month1
   }
 
-  if (role === 'nurse') {
-    if (time === 'day1' || time === 'day3') return RECIPES.amara_medicine_day1
-    return RECIPES.amara_medicine_week1
-  }
-  if (role === 'driver') {
-    if (time === 'day1' || time === 'day3') return RECIPES.joseph_freight_day1
-    return RECIPES.joseph_freight_week1
+  // LENS is the primary driver, not role
+  const perspective = role === 'nurse' ? 'amara' : role === 'driver' ? 'joseph' : null
+
+  // Find recipes matching this lens
+  const candidates = Object.values(RECIPES).filter(r =>
+    r.phase === 'landed' && r.lens === lens
+  )
+
+  // Prefer matching perspective, then any
+  const withPerspective = candidates.filter(r =>
+    r.perspective === perspective || r.perspective === null
+  )
+  // Among those, prefer exact perspective match over null
+  const exactPerspective = withPerspective.filter(r => r.perspective === perspective)
+  const pool = exactPerspective.length > 0 ? exactPerspective : withPerspective
+
+  const withTime = pool.find(r => r.time === time)
+  if (withTime) return withTime
+
+  // day3 falls back to day1
+  if (time === 'day3') {
+    const day1 = pool.find(r => r.time === 'day1')
+    if (day1) return day1
   }
 
-  // Fallback: if baseline scene with no role yet, show shipping
-  if (scene === 'baseline') {
-    if (time === 'day1' || time === 'day3') return RECIPES.shipping_day1
-    return RECIPES.shipping_week1
-  }
+  if (pool.length > 0) return pool[0]
+  if (candidates.length > 0) return candidates[0]
 
-  return RECIPES.globe_context
+  // Fallback to shipping
+  return RECIPES.shipping_day1
 }

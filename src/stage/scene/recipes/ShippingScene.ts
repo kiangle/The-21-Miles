@@ -100,10 +100,12 @@ export class ShippingScene implements ActiveScene {
   private drawRoute() {
     this.routeGfx.clear()
 
-    // Main route lane field
+    // Main route lane field — wide and visible at ocean zoom
     const mainPath = this.getMainPath()
     if (mainPath.length >= 2) {
-      drawLaneField(this.routeGfx, mainPath, 0x72b7ff, 0.35, 2)
+      drawLaneField(this.routeGfx, mainPath, 0x72b7ff, 0.5, 5)
+      // Animated dashes along the route
+      this.drawAnimatedDashes(mainPath, 0x72b7ff, 0.4)
     }
 
     // Cape reroute — only visible when pressure > 0.4
@@ -111,7 +113,8 @@ export class ShippingScene implements ActiveScene {
       const capePath = this.getCapePath()
       if (capePath.length >= 2) {
         const capeAlpha = Math.min(1, (this.recipe.pressure - 0.4) * 1.5)
-        drawLaneField(this.routeGfx, capePath, 0xd4763c, 0.2 * capeAlpha, 1.5)
+        drawLaneField(this.routeGfx, capePath, 0xd4763c, 0.3 * capeAlpha, 4)
+        this.drawAnimatedDashes(capePath, 0xd4763c, 0.25 * capeAlpha)
       }
     }
 
@@ -178,6 +181,46 @@ export class ShippingScene implements ActiveScene {
     return path[targetIdx]
   }
 
+  /** Draw animated dashes along a path — 4px segments with 4px gaps, scrolling */
+  private drawAnimatedDashes(path: { x: number; y: number }[], color: number, alpha: number) {
+    if (path.length < 2) return
+    const dashLen = 4
+    const gapLen = 4
+    const offset = (this.elapsed * 20) % (dashLen + gapLen)
+
+    this.routeGfx.lineStyle(2, color, alpha)
+    let accum = -offset
+    for (let i = 0; i < path.length - 1; i++) {
+      const p0 = path[i]
+      const p1 = path[i + 1]
+      const dx = p1.x - p0.x
+      const dy = p1.y - p0.y
+      const segLen = Math.sqrt(dx * dx + dy * dy)
+      if (segLen < 1) continue
+      const nx = dx / segLen
+      const ny = dy / segLen
+
+      let pos = 0
+      while (pos < segLen) {
+        const cyclePos = ((accum + pos) % (dashLen + gapLen) + (dashLen + gapLen)) % (dashLen + gapLen)
+        if (cyclePos < dashLen) {
+          const drawLen = Math.min(dashLen - cyclePos, segLen - pos)
+          const sx = p0.x + nx * pos
+          const sy = p0.y + ny * pos
+          const ex = p0.x + nx * (pos + drawLen)
+          const ey = p0.y + ny * (pos + drawLen)
+          this.routeGfx.moveTo(sx, sy)
+          this.routeGfx.lineTo(ex, ey)
+          pos += drawLen
+        } else {
+          pos += (dashLen + gapLen) - cyclePos
+        }
+      }
+      accum += segLen
+    }
+    this.routeGfx.lineStyle(0)
+  }
+
   update(dt: number) {
     this.elapsed += dt
     Matter.Engine.update(this.engine, dt * 1000)
@@ -213,9 +256,9 @@ export class ShippingScene implements ActiveScene {
         v.prevAngle = Math.atan2(vy, vx)
       }
 
-      // Update wake trail (last 8 positions)
+      // Update wake trail (last 16 positions)
       v.wake.push({ x: v.body.position.x, y: v.body.position.y })
-      if (v.wake.length > 8) v.wake.shift()
+      if (v.wake.length > 16) v.wake.shift()
     }
 
     // Remove arrived vessels
@@ -232,6 +275,9 @@ export class ShippingScene implements ActiveScene {
       return true
     })
 
+    // Redraw route each frame for animated dashes
+    this.drawRoute()
+
     // Draw
     this.actorGfx.clear()
     this.bloomGfx.clear()
@@ -247,9 +293,9 @@ export class ShippingScene implements ActiveScene {
       const by = v.body.position.y
       const speed = Math.sqrt(v.body.velocity.x ** 2 + v.body.velocity.y ** 2)
 
-      // Wake trail
+      // Wake trail — wider and longer
       if (v.wake.length >= 2) {
-        drawWake(this.actorGfx, v.wake, v.rerouted ? 0xd4763c : 0xb9d7ff, 0.3, 1)
+        drawWake(this.actorGfx, v.wake, v.rerouted ? 0xd4763c : 0xb9d7ff, 0.3, 2)
       }
 
       // Stressed halo when slow near chokepoint
@@ -262,9 +308,9 @@ export class ShippingScene implements ActiveScene {
         }
       }
 
-      // Ship miniature
+      // Ship miniature — large and readable at ocean zoom
       const tint = v.rerouted ? 0.7 : 0.9
-      drawShipMiniature(this.actorGfx, bx, by, v.prevAngle, 1.2, tint)
+      drawShipMiniature(this.actorGfx, bx, by, v.prevAngle, 2.0, tint)
     }
   }
 

@@ -141,7 +141,7 @@ export default function Shell({
           send({ type: 'ADVANCE_SCENE', scene: zone as SceneId })
           send({ type: 'SET_LENS', lens: targetLens })
           send({ type: 'SET_TIME', time: targetTime })
-          const recipe = resolveRecipe(zone, roleId, targetTime as any)
+          const recipe = resolveRecipe(zone, roleId, targetTime as any, targetLens as any)
           setActiveRecipe(recipe)
           setMapFocus(recipe.mapFocus)
         }
@@ -157,8 +157,9 @@ export default function Shell({
     send({ type: 'SELECT_ROLE', roleId: role, profileId })
     setShowRoleSelect(false)
 
-    // Update map focus and active recipe for selected role
-    const recipe = resolveRecipe('baseline', role, 'day1')
+    // Start with shipping lens on role selection (baseline view)
+    send({ type: 'SET_LENS', lens: 'shipping' })
+    const recipe = resolveRecipe('baseline', role, 'day1', 'shipping')
     setActiveRecipe(recipe)
     setMapFocus(recipe.mapFocus)
 
@@ -189,9 +190,27 @@ export default function Shell({
   useEffect(() => {
     const unsub = ink.onTagEvent((event: InkTagEvent) => {
       switch (event.type) {
-        case 'SCENE':
+        case 'SCENE': {
+          // Scene changes also drive lens — the narrative dictates what you see
+          const sceneToLens: Record<string, string> = {
+            'baseline': 'shipping',
+            'rupture': 'shipping',
+            'detour': 'shipping',
+            'cascade': roleId === 'nurse' ? 'medicine' : 'freight',
+            'yourMonth': 'household',
+            'whatNext': 'household',
+            'split': 'household',
+          }
+          const newLens = sceneToLens[event.value]
+          if (newLens) {
+            send({ type: 'SET_LENS', lens: newLens as LensId })
+            const recipe = resolveRecipe(event.value, roleId, time, newLens as any)
+            setActiveRecipe(recipe)
+            setMapFocus(recipe.mapFocus)
+          }
           send({ type: 'ADVANCE_SCENE', scene: event.value as SceneId })
           break
+        }
         case 'MORPH':
           // Morph events can drive scene-level visual changes
           break
@@ -219,6 +238,10 @@ export default function Shell({
           const fid = futureMap[event.value]
           if (fid) {
             send({ type: 'SET_FUTURE', future: fid })
+            // Activate split screen to show both paths side by side
+            if (!compareMode) {
+              send({ type: 'TOGGLE_COMPARE' })
+            }
             const scenarioId = event.value === 'redSea' ? 'whatif_redsea' : event.value === 'reserves' ? 'whatif_reserves' : 'whatif_ceasefire'
             atlas.whatIf(WORLD_ID, scenarioId, roleId === 'nurse' ? 'exposure_kenya_nurse' : 'exposure_kenya_driver')
               .then(data => send({ type: 'WHAT_IF_RECEIVED', data }))
@@ -244,7 +267,7 @@ export default function Shell({
       }
     })
     return unsub
-  }, [ink, send, audio, atlas, lens, roleId, time])
+  }, [ink, send, audio, atlas, lens, roleId, time, compareMode])
 
   // ── Ink choices ──
   const handleInkChoice = useCallback((choiceIndex: number) => {
@@ -259,21 +282,22 @@ export default function Shell({
   // ── Field console handlers ──
   const handleLens = useCallback((l: LensId) => {
     send({ type: 'SET_LENS', lens: l })
-    // MapRoot handles the camera flyTo based on lens change
-    // Update the active recipe for the new lens
-    const focus = LENS_FOCUS_MAP[l]
-    if (focus) {
-      const recipe = resolveRecipeByFocus(focus, roleId, time)
-      setActiveRecipe(recipe)
-    }
-  }, [send, roleId, time])
+    // Lens is the primary driver — resolve recipe by lens
+    const recipe = resolveRecipe(scene, roleId, time, l as any)
+    setActiveRecipe(recipe)
+    setMapFocus(recipe.mapFocus)
+  }, [send, roleId, time, scene])
   const handleTime = useCallback((t: TimeId) => send({ type: 'SET_TIME', time: t }), [send])
   const handleFuture = useCallback((f: FutureId) => {
     send({ type: 'SET_FUTURE', future: f })
+    // Activate split screen to show both paths side by side
+    if (!compareMode) {
+      send({ type: 'TOGGLE_COMPARE' })
+    }
     const scenarioId = f === 'redSea' ? 'whatif_redsea' : f === 'reserves' ? 'whatif_reserves' : 'whatif_ceasefire'
     atlas.whatIf(WORLD_ID, scenarioId, roleId === 'nurse' ? 'exposure_kenya_nurse' : 'exposure_kenya_driver')
       .then(data => send({ type: 'WHAT_IF_RECEIVED', data }))
-  }, [send, atlas, roleId])
+  }, [send, atlas, roleId, compareMode])
   const handleSwitchPerspective = useCallback(() => send({ type: 'SWITCH_PERSPECTIVE' }), [send])
 
   const showFieldConsole = ['baseline', 'rupture', 'detour', 'cascade', 'yourMonth', 'whatNext', 'split'].includes(scene)
