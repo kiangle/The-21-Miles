@@ -35,9 +35,10 @@ type Props = {
 }
 
 // ── Map style: Carto Dark raster tiles + GeoJSON overlays ──
+// NOTE: Using default mercator projection. Globe projection + raster tiles
+// can crash the WebGL context. Use wide zoom (1.5) for the entry view instead.
 const STYLE: maplibregl.StyleSpecification = {
   version: 8,
-  projection: { type: 'globe' },
   sources: {
     'carto-dark': {
       type: 'raster',
@@ -100,12 +101,6 @@ const STYLE: maplibregl.StyleSpecification = {
       },
     },
   ],
-  sky: {
-    'sky-color': '#0a1628',
-    'horizon-color': '#1a3458',
-    'fog-color': '#060e1a',
-    'sky-horizon-blend': 0.6,
-  },
 } as any
 
 /**
@@ -254,6 +249,10 @@ export default function MapRoot(props: Props) {
     })
 
     mapRef.current = map
+
+    map.on('error', (e: any) => {
+      console.error('[MapRoot] MapLibre error:', e.error?.message || e)
+    })
 
     map.on('load', () => {
       projectorRef.current.attach(map)

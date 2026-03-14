@@ -75,13 +75,16 @@ export default function Shell({
 
   // ── Bootstrap ──
   useEffect(() => {
+    console.log('[Shell] Bootstrap effect')
     atlas.bootstrap(WORLD_ID, 'exposure_kenya_nurse').then(data => {
+      console.log('[Shell] Bootstrap loaded')
       send({ type: 'BOOTSTRAP_LOADED', data })
     })
   }, [atlas, send])
 
   // ── Entry: show UI after delay ──
   useEffect(() => {
+    console.log('[Shell] Entry UI effect, scene:', scene, 'bootstrap:', !!bootstrap)
     if (scene !== 'entry' || !bootstrap) return
     const timer = setTimeout(() => {
       setShowEntryUI(true)
@@ -102,6 +105,11 @@ export default function Shell({
 
   // ── Scene transitions ──
   useEffect(() => {
+    console.log('[Shell] Scene transition effect, scene:', scene)
+    if (scene === 'entry') {
+      // Reset flyTo guard so StrictMode double-mount doesn't permanently block it
+      flyToHandledRef.current = false
+    }
     if (scene === 'flyTo') {
       setShowEntryUI(false)
       setMapFocus('kenya')
@@ -113,6 +121,7 @@ export default function Shell({
   // re-triggering MapRoot's flyTo effect and killing moveend listeners.
   const flyToHandledRef = useRef(false)
   const handleFlyToComplete = useCallback(() => {
+    console.log('[Shell] handleFlyToComplete called, already handled:', flyToHandledRef.current)
     if (flyToHandledRef.current) return
     flyToHandledRef.current = true
     setStageVisible(true)
