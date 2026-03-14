@@ -1,5 +1,6 @@
 import * as PIXI from 'pixi.js'
 import Matter from 'matter-js'
+import gsap from 'gsap'
 import type { SceneRecipe } from './SceneRecipe'
 
 /**
@@ -40,16 +41,55 @@ export class SceneRecipeController {
   }
 
   /**
-   * Apply a new recipe. This is the HARD RESET point.
+   * Apply a new recipe with cross-fade transition.
    *
-   * 1. Dispose the current scene completely
-   * 2. Clear dynamic Matter bodies
-   * 3. Create the new scene
+   * Old scene fades out over 1s then disposes.
+   * New scene fades in over 0.8s.
    */
   apply(recipe: SceneRecipe, ctx: SceneCtx) {
     if (this.active?.id === recipe.id) return
-    this.reset(ctx)
+
+    // Fade out the old scene instead of instant dispose
+    if (this.active) {
+      const dying = this.active
+      const container = (dying as any).container as PIXI.Container | undefined
+      if (container) {
+        gsap.to(container, {
+          alpha: 0,
+          duration: 1.0,
+          ease: 'power2.in',
+          onComplete: () => {
+            dying.dispose()
+          },
+        })
+      } else {
+        dying.dispose()
+      }
+    }
+    this.active = null
+
+    // Clear dynamic Matter bodies for the new scene
+    const allBodies = Matter.Composite.allBodies(ctx.matterEngine.world)
+    const dynamicBodies = allBodies.filter(b => !b.isStatic)
+    if (dynamicBodies.length > 0) {
+      Matter.Composite.remove(ctx.matterEngine.world, dynamicBodies)
+    }
+
     this.active = this.factory(recipe, ctx)
+
+    // Fade in the new scene
+    if (this.active) {
+      const container = (this.active as any).container as PIXI.Container | undefined
+      if (container) {
+        container.alpha = 0
+        gsap.to(container, {
+          alpha: 1,
+          duration: 0.8,
+          ease: 'power2.out',
+          delay: 0.3,
+        })
+      }
+    }
   }
 
   /**

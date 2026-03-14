@@ -73,7 +73,7 @@ const STYLE: maplibregl.StyleSpecification = {
       id: 'carto-dark-tiles',
       type: 'raster',
       source: 'carto-dark',
-      paint: { 'raster-opacity': 1 },
+      paint: { 'raster-opacity': 0.7 },
     },
     {
       id: 'kenya-fill',
@@ -155,12 +155,13 @@ function buildDeckLayers(lens: LensId, ruptured: boolean, globePhase: boolean) {
     ]
   }
 
-  // Landed phase: corridor only + small restrained port dots
+  // Landed phase: layers depend on active lens
   const corridorColor: [number, number, number, number] = lens === 'freight'
     ? [212, 168, 102, 220]
     : [184, 139, 74, 80]
+  const routeColor: [number, number, number, number] = [114, 183, 255, 210]
 
-  return [
+  const layers: any[] = [
     new PathLayer({
       id: 'corridor-route',
       data: [
@@ -183,9 +184,45 @@ function buildDeckLayers(lens: LensId, ruptured: boolean, globePhase: boolean) {
       radiusUnits: 'meters' as const,
       getFillColor: [220, 200, 158, 120],
     }),
-    // NO chokepoints in landed phase — they're global-scale
-    // NO shipping routes in landed phase — we're inside Kenya now
   ]
+
+  // Show shipping routes + chokepoints in landed phase when shipping lens active
+  if (lens === 'shipping') {
+    layers.push(
+      new PathLayer({
+        id: 'shipping-routes',
+        data: [
+          { path: [[56.3, 26.5], [54.0, 24.0], [48.0, 20.0], [43.3, 12.6], [44.0, 2.0], [39.67, -4.05]] },
+          { path: [[39.67, -4.05], [40.0, -10.0], [32.0, -30.0], [18.5, -34.4], [-5, -20]] },
+          { path: [[43.3, 12.6], [38.0, 20.0], [33.5, 28.0], [32.3, 30.0]] },
+        ],
+        getPath: (d: any) => d.path,
+        getColor: routeColor,
+        widthUnits: 'pixels' as const,
+        getWidth: ruptured ? 4 : 2,
+        opacity: 0.55,
+      }),
+      new ScatterplotLayer({
+        id: 'chokepoints',
+        data: [
+          { position: [56.3, 26.5], status: 'closed' },
+          { position: [43.3, 12.6], status: 'open' },
+          { position: [32.3, 30.0], status: 'open' },
+          { position: [18.5, -34.4], status: 'congested' },
+        ],
+        getPosition: (d: any) => d.position,
+        getRadius: (d: any) => d.status === 'closed' ? 80000 : 50000,
+        radiusUnits: 'meters' as const,
+        getFillColor: (d: any) =>
+          d.status === 'closed' ? [255, 92, 64, 220]
+            : d.status === 'congested' ? [230, 180, 60, 180]
+              : [120, 200, 140, 180],
+        opacity: 0.45,
+      }),
+    )
+  }
+
+  return layers
 }
 
 export default function MapRoot(props: Props) {
@@ -285,6 +322,35 @@ export default function MapRoot(props: Props) {
     if (!deckOverlayRef.current) return
     deckOverlayRef.current.setProps({ layers: buildDeckLayers(lens, ruptured, globePhase) })
   }, [lens, ruptured, globePhase])
+
+  // ── Lens changes drive camera to appropriate geographic view ──
+  useEffect(() => {
+    if (!mapRef.current || globePhase) return
+    const map = mapRef.current
+
+    const focusMap: Record<string, MapFocus> = {
+      shipping: 'shipping',
+      freight: 'corridor',
+      medicine: 'kenya',
+      household: 'nairobi',
+    }
+
+    const targetFocus = focusMap[lens] || 'kenya'
+    const preset = MAP_FOCUS_PRESETS[targetFocus]
+    map.flyTo({
+      center: preset.center,
+      zoom: preset.zoom,
+      pitch: preset.pitch,
+      bearing: preset.bearing,
+      duration: 2000,
+      essential: true,
+    })
+
+    // Update anchor projections after camera move
+    map.once('moveend', () => {
+      projectorRef.current.reprojectAll()
+    })
+  }, [lens, globePhase])
 
   // ── Toggle city marker visibility based on phase ──
   useEffect(() => {

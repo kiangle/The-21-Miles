@@ -43,7 +43,7 @@ export const MAP_FOCUS_PRESETS: Record<MapFocus, {
   bearing: number
 }> = {
   world:    { center: [42, 15],        zoom: 1.8,  pitch: 0,   bearing: 0 },
-  shipping: { center: [50, 5],         zoom: 3.0,  pitch: 5,   bearing: 0 },
+  shipping: { center: [50, 5],         zoom: 3.0,  pitch: 10,  bearing: -15 },
   kenya:    { center: [37.6, -1.4],    zoom: 4.8,  pitch: 10,  bearing: 0 },
   corridor: { center: [38.2, -2.5],    zoom: 6.6,  pitch: 20,  bearing: -12 },
   mombasa:  { center: [39.67, -4.05],  zoom: 8.5,  pitch: 30,  bearing: -10 },

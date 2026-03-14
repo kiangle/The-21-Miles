@@ -9,6 +9,7 @@ import type { SceneCtx } from './SceneRecipeController'
 import { getAnchorProjector } from '../map/AnchorProjector'
 import { resolveRecipe } from './SceneRecipe'
 import type { SceneRecipe } from './SceneRecipe'
+import { ShippingScene } from './recipes/ShippingScene'
 import { MedicineScene } from './recipes/MedicineScene'
 import { FreightScene } from './recipes/FreightScene'
 import { MonthScene } from './recipes/MonthScene'
@@ -56,6 +57,8 @@ function createScene(recipe: SceneRecipe, ctx: SceneCtx) {
   if (recipe.phase !== 'landed') return null
 
   switch (recipe.actorMode) {
+    case 'ships':
+      return new ShippingScene(recipe, ctx)
     case 'medicine':
       return new MedicineScene(recipe, ctx)
     case 'convoys':

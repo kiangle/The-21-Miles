@@ -231,7 +231,7 @@ export default function Shell({
             const recipe = RECIPES[value]
             setActiveRecipe(recipe)
             setMapFocus(recipe.mapFocus)
-          } else if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor'].includes(value)) {
+          } else if (['world', 'kenya', 'mombasa', 'nairobi', 'corridor', 'shipping'].includes(value)) {
             // Focus-based: resolve best recipe for current role + time
             const recipe = resolveRecipeByFocus(value as MapFocus, roleId, time)
             setActiveRecipe(recipe)
@@ -245,12 +245,12 @@ export default function Shell({
   // ── Field console handlers ──
   const handleLens = useCallback((l: LensId) => {
     send({ type: 'SET_LENS', lens: l })
-    // Lens switch drives camera to the appropriate geographic view
+    // MapRoot handles the camera flyTo based on lens change
+    // Update the active recipe for the new lens
     const focus = LENS_FOCUS_MAP[l]
     if (focus) {
       const recipe = resolveRecipeByFocus(focus, roleId, time)
       setActiveRecipe(recipe)
-      setMapFocus(focus)
     }
   }, [send, roleId, time])
   const handleTime = useCallback((t: TimeId) => send({ type: 'SET_TIME', time: t }), [send])
